@@ -319,7 +319,8 @@
                         </div>
 
                         <div id="historyResults" style="display:none; width: 100%;">
-                            <div class="d-flex justify-content-end mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                                <div id="bucketIntervalBadge" class="d-flex align-items-center gap-2" style="display: none !important;"></div>
                                 <div class="btn-group btn-group-sm p-1 rounded" style="background: var(--bg-card); border: 1px solid var(--border-color);">
                                     <button class="btn btn-outline-info active" id="mode-band-btn" onclick="window.setHistoryMode('band')"><i class="bi bi-bandaid"></i> Bant Grafiği</button>
                                     <button class="btn btn-outline-info" id="mode-candle-btn" onclick="window.setHistoryMode('candle')"><i class="bi bi-graph-up-arrow"></i> Mum Grafiği</button>

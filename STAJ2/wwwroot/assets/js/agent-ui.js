@@ -506,6 +506,9 @@ function renderBaseCharts(cpuRamData) {
     // MİNİ RAPOR TETİKLEYİCİLERİ
     generateMiniReport(cpuRamData, 'cpuAvg', 'cpuMiniReport', '%', 'cpuChart');
     generateMiniReport(cpuRamData, 'ramAvg', 'ramMiniReport', '%', 'ramChart');
+
+    // BUCKET ARALIĞI BİLGİSİ
+    updateBucketIntervalBadge(cpuRamData);
 }
 
 function formatChartDate(dateString) {
@@ -517,6 +520,59 @@ function formatChartDate(dateString) {
         minute: '2-digit',
         hour12: false
     });
+}
+
+function updateBucketIntervalBadge(dataArray) {
+    const badge = document.getElementById('bucketIntervalBadge');
+    if (!badge) return;
+
+    const validData = dataArray.filter(m => m.cpuAvg != null || m.ramAvg != null);
+    if (validData.length < 2) {
+        badge.style.cssText = 'display: none !important';
+        return;
+    }
+
+    // Ardışık noktalar arasındaki farkları hesapla
+    const diffs = [];
+    for (let i = 0; i < validData.length - 1; i++) {
+        const t1 = new Date(validData[i].createdAt).getTime();
+        const t2 = new Date(validData[i + 1].createdAt).getTime();
+        const diff = t2 - t1;
+        if (diff > 0 && diff < 7 * 24 * 60 * 60 * 1000) {
+            diffs.push(diff);
+        }
+    }
+
+    if (diffs.length === 0) {
+        badge.style.cssText = 'display: none !important';
+        return;
+    }
+
+    diffs.sort((a, b) => a - b);
+    const bandIntervalMs = diffs[Math.floor(diffs.length / 2)];
+
+    // Mum grafiğinde ikili gruplama yapıldığı için süre ~2 katı
+    const thresholdLimit = 300;
+    const isGrouped = validData.length > 0 && validData.length < thresholdLimit;
+    const candleIntervalMs = isGrouped ? bandIntervalMs * 2 : bandIntervalMs;
+
+    const intervalMs = currentHistoryMode === 'candle' ? candleIntervalMs : bandIntervalMs;
+    const label = currentHistoryMode === 'candle' ? 'Her mum' : 'Her nokta';
+    const icon = currentHistoryMode === 'candle' ? 'bi-graph-up-arrow' : 'bi-clock-history';
+
+    const formatDuration = (ms) => {
+        const totalSec = Math.round(ms / 1000);
+        const days = Math.floor(totalSec / 86400);
+        const hours = Math.floor((totalSec % 86400) / 3600);
+        const mins = Math.floor((totalSec % 3600) / 60);
+        if (days > 0) return hours > 0 ? days + ' g\u00fcn ' + hours + ' saat' : days + ' g\u00fcn';
+        if (hours > 0) return mins > 0 ? hours + ' saat ' + mins + ' dk' : hours + ' saat';
+        if (mins > 0) return mins + ' dk';
+        return totalSec + ' sn';
+    };
+
+    badge.style.cssText = '';
+    badge.innerHTML = '<span class="badge rounded-pill d-flex align-items-center gap-1" style="background: rgba(13, 202, 240, 0.15); color: #0dcaf0; font-size: 0.78rem; padding: 6px 12px; border: 1px solid rgba(13, 202, 240, 0.3);"><i class="bi ' + icon + '"></i> ' + label + ' \u2248 ' + formatDuration(intervalMs) + '</span>';
 }
 
 function generateDiskFilters(disksData) {
@@ -1470,6 +1526,7 @@ window.setHistoryMode = function(mode) {
 
     if (currentHistoryData) {
         renderBaseCharts(currentHistoryData.cpuRam);
+        updateBucketIntervalBadge(currentHistoryData.cpuRam);
         
         const activeDisks = [];
         document.querySelectorAll('.disk-toggle:checked').forEach(input => {
