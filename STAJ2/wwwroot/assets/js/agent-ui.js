@@ -877,14 +877,29 @@ function createBandChart(canvasId, labelText, labels, avgData, minData, maxData,
                             }
                             
                             const chart = tooltipItems[0].chart;
-                            const val = tooltipItems[0].parsed.y !== undefined ? tooltipItems[0].parsed.y.toFixed(2) + '%' : '';
                             const formatDetailedDate = (ms) => ms ? new Date(ms).toLocaleString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
                             
-                            const highlightTime = chart._highlightTime;
-                            
-                            if (chart._highlightType === 'max') return `🚩 Maksimum Noktası: ${val} - ${formatDetailedDate(highlightTime || (maxTimeData ? maxTimeData[idx] : (rawTimes ? rawTimes[idx] : null)))}`;
-                            if (chart._highlightType === 'min') return `⬇ Minimum Noktası: ${val} - ${formatDetailedDate(highlightTime || (minTimeData ? minTimeData[idx] : (rawTimes ? rawTimes[idx] : null)))}`;
-                            if (chart._highlightType === 'peak') return `⚠ Zirve Noktası: ${val} - ${formatDetailedDate(highlightTime || (maxTimeData ? maxTimeData[idx] : (rawTimes ? rawTimes[idx] : null)))}`;
+                            // Sadece vurgulanan index ile tooltip index'i eşleşirse özel başlık göster
+                            if (chart._highlightType && chart._highlightIdx === idx) {
+                                const highlightTime = chart._highlightTime;
+                                // Vurgulanan tipe göre doğru değeri ve zamanı al
+                                let highlightVal, highlightTimeMs;
+                                if (chart._highlightType === 'max') {
+                                    highlightVal = maxData[idx] != null ? maxData[idx] : (avgData[idx] != null ? avgData[idx] : 0);
+                                    highlightTimeMs = highlightTime || (maxTimeData ? maxTimeData[idx] : (rawTimes ? rawTimes[idx] : null));
+                                    return `🚩 Maksimum Noktası: ${highlightVal.toFixed(1)}% - ${formatDetailedDate(highlightTimeMs)}`;
+                                }
+                                if (chart._highlightType === 'min') {
+                                    highlightVal = minData[idx] != null ? minData[idx] : (avgData[idx] != null ? avgData[idx] : 0);
+                                    highlightTimeMs = highlightTime || (minTimeData ? minTimeData[idx] : (rawTimes ? rawTimes[idx] : null));
+                                    return `⬇ Minimum Noktası: ${highlightVal.toFixed(1)}% - ${formatDetailedDate(highlightTimeMs)}`;
+                                }
+                                if (chart._highlightType === 'peak') {
+                                    highlightVal = maxData[idx] != null ? maxData[idx] : (avgData[idx] != null ? avgData[idx] : 0);
+                                    highlightTimeMs = highlightTime || (maxTimeData ? maxTimeData[idx] : (rawTimes ? rawTimes[idx] : null));
+                                    return `⚠ Zirve Noktası: ${highlightVal.toFixed(1)}% - ${formatDetailedDate(highlightTimeMs)}`;
+                                }
+                            }
 
                             const tStartStr = formatDetailedDate(rawTimes ? rawTimes[idx] : null) || labels[idx];
                             const tEndMs = tEndData && tEndData[idx] ? tEndData[idx] : null;
@@ -898,8 +913,8 @@ function createBandChart(canvasId, labelText, labels, avgData, minData, maxData,
                             const idx = tooltipItems[0].dataIndex;
                             const chart = tooltipItems[0].chart;
 
-                            // Eğer butonla vurgulama yapılmışsa alt bilgileri (çevrimdışı bölge vb) gösterme
-                            if (chart._highlightType) return '';
+                            // Eğer butonla vurgulama yapılmışsa ve doğru index'teyse alt bilgileri gösterme
+                            if (chart._highlightType && chart._highlightIdx === idx) return '';
 
                             const currentIsValid = avgData[idx] !== null && avgData[idx] !== undefined;
                             if (!currentIsValid) return '';
@@ -977,7 +992,7 @@ function createBandChart(canvasId, labelText, labels, avgData, minData, maxData,
                             }
 
                             const chart = context.chart;
-                            if (chart._highlightType) return null;
+                            if (chart._highlightType && chart._highlightIdx === idx) return null;
 
                             const val = context.parsed.y !== null && context.parsed.y !== undefined ? context.parsed.y.toFixed(2) + '%' : '';
                             const formatDetailedDate = (ms) => ms ? new Date(ms).toLocaleString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
@@ -1360,27 +1375,30 @@ function createCandleChart(canvasId, labelText, candleData, labels, diskName = n
                             const p = chart.data.datasets[0].data[idx];
                             
                             const formatDetailedDate = (ms) => new Date(ms).toLocaleString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+                            // Sadece vurgulanan index ile tooltip index'i eşleşirse özel başlık göster
+                            if (chart._highlightType && chart._highlightIdx === idx) {
+                                const highlightTime = chart._highlightTime;
+                                const hTimeStr = formatDetailedDate(highlightTime || p.hTime || p.t);
+                                const lTimeStr = formatDetailedDate(highlightTime || p.lTime || p.t);
+
+                                if (chart._highlightType === 'max') return `🚩 Maksimum Noktası: ${p.h.toFixed(1)}% - ${hTimeStr}`;
+                                if (chart._highlightType === 'min') return `⬇ Minimum Noktası: ${p.l.toFixed(1)}% - ${lTimeStr}`;
+                                if (chart._highlightType === 'peak') return `⚠ Zirve Noktası: ${p.h.toFixed(1)}% - ${hTimeStr}`;
+                            }
+
                             let timeStr = formatDetailedDate(p.t);
                             if (p.tEnd && p.tEnd > p.t && p.tEnd - p.t > 60000) {
                                 timeStr += ' - ' + formatDetailedDate(p.tEnd);
                             }
 
-                            const highlightTime = chart._highlightTime;
-                            const hTimeStr = formatDetailedDate(highlightTime || p.hTime || p.t);
-                            const lTimeStr = formatDetailedDate(highlightTime || p.lTime || p.t);
-
-                            if (chart._highlightType === 'max') return `🚩 Maksimum Noktası: ${p.h.toFixed(1)}% - ${hTimeStr}`;
-                            if (chart._highlightType === 'min') return `⬇ Minimum Noktası: ${p.l.toFixed(1)}% - ${lTimeStr}`;
-                            if (chart._highlightType === 'peak') return `⚠ Zirve Noktası: ${p.h.toFixed(1)}% - ${hTimeStr}`;
-
                             return timeStr;
                         },
                         afterTitle: function(tooltipItems) {
                             if (!tooltipItems || tooltipItems.length === 0) return '';
-                            const chart = tooltipItems[0].chart;
-                            if (chart._highlightType) return '';
-
                             const idx = tooltipItems[0].dataIndex;
+                            const chart = tooltipItems[0].chart;
+                            if (chart._highlightType && chart._highlightIdx === idx) return '';
                             const t1End = candleData[idx].tEnd || candleData[idx].t;
                             const formatDetailedDate = (ms) => new Date(ms).toLocaleString('tr-TR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -1417,7 +1435,7 @@ function createCandleChart(canvasId, labelText, candleData, labels, diskName = n
                         },
                         label: function(context) {
                             const chart = context.chart;
-                            if (chart._highlightType) return null;
+                            if (chart._highlightType && chart._highlightIdx === context.dataIndex) return null;
 
                             const p = context.raw;
                             const formatDetailedDate = (ms) => ms ? new Date(ms).toLocaleString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
@@ -1871,80 +1889,111 @@ window.highlightChartPoint = function (canvasId, timeStr, highlightType = null) 
         if (diskName) chartInstance = historyCharts.disks[diskName];
     }
 
-    if (chartInstance) {
-        // Tip ve zaman bilgisini sakla (Özel tooltip başlıkları için)
-        chartInstance._highlightType = highlightType;
-        chartInstance._highlightTime = new Date(timeStr).getTime();
+    if (!chartInstance) return;
 
-        let dataIndex = -1;
-        const targetMs = new Date(timeStr).getTime();
+    let dataIndex = -1;
+    const targetMs = new Date(timeStr).getTime();
 
-        if (currentHistoryMode === 'candle') {
-            // Mumlar zaman aralığı kapsayabileceği için targetMs'e en yakın veya onu kapsayan mumu bul
-            dataIndex = chartInstance.data.datasets[0].data.findIndex((d, i, arr) => {
-                const nextT = arr[i + 1] ? arr[i + 1].t : Infinity;
-                return targetMs >= d.t && targetMs < nextT;
+    if (currentHistoryMode === 'candle') {
+        // Mumlar zaman aralığı kapsayabileceği için targetMs'e en yakın veya onu kapsayan mumu bul
+        dataIndex = chartInstance.data.datasets[0].data.findIndex((d, i, arr) => {
+            const nextT = arr[i + 1] ? arr[i + 1].t : Infinity;
+            return targetMs >= d.t && targetMs < nextT;
+        });
+        // Eğer hala bulunamadıysa (targetMs başlangıçtan önceyse vb.) en yakın olanı al
+        if (dataIndex === -1) {
+            let minDiff = Infinity;
+            chartInstance.data.datasets[0].data.forEach((d, i) => {
+                const diff = Math.abs(d.t - targetMs);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    dataIndex = i;
+                }
             });
-            // Eğer hala bulunamadıysa (targetMs başlangıçtan önceyse vb.) en yakın olanı al
-            if (dataIndex === -1) {
-                let minDiff = Infinity;
-                chartInstance.data.datasets[0].data.forEach((d, i) => {
-                    const diff = Math.abs(d.t - targetMs);
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        dataIndex = i;
-                    }
+        }
+    } else {
+        const rawDataSource = diskName 
+            ? (currentHistoryData.disks || []).filter(d => d.diskName === diskName)
+            : (currentHistoryData.cpuRam || []);
+        
+        // Önce createdAt ile eşleşme dene
+        dataIndex = rawDataSource.findIndex(m => Math.abs(new Date(m.createdAt).getTime() - targetMs) < 1000);
+        
+        // Bulunamazsa tüm zaman alanlarında ara (butonlar cpuMaxTime, ramMinTime vb. gönderiyor)
+        if (dataIndex === -1) {
+            dataIndex = rawDataSource.findIndex(m => {
+                const timeFields = [
+                    m.cpuMaxTime, m.cpuMinTime, m.ramMaxTime, m.ramMinTime,
+                    m.usedMaxTime, m.usedMinTime, m.maxCreatedAt
+                ];
+                return timeFields.some(tf => {
+                    if (!tf) return false;
+                    const t = new Date(tf).getTime();
+                    return !isNaN(t) && Math.abs(t - targetMs) < 1000;
                 });
-            }
-        } else {
-            const rawDataSource = diskName 
-                ? (currentHistoryData.disks || []).filter(d => d.diskName === diskName)
-                : (currentHistoryData.cpuRam || []);
-            
-            dataIndex = rawDataSource.findIndex(m => Math.abs(new Date(m.createdAt).getTime() - targetMs) < 1000);
+            });
         }
-
-        if (dataIndex !== -1) {
-            // Eğer manuel olarak mouse ile üzerine gelinirse tipi temizle (Normal tooltip'e dönmesi için)
-            if (!chartInstance._hasHoverListener) {
-                const originalOnHover = chartInstance.options.onHover;
-                chartInstance.options.onHover = (event, elements) => {
-                    if (event.type === 'mousemove') {
-                        chartInstance._highlightType = null;
-                        chartInstance._highlightTime = null;
-                    }
-                    if (typeof originalOnHover === 'function') originalOnHover(event, elements);
-                };
-                chartInstance._hasHoverListener = true;
-            }
-
-            const targetDsIndex = currentHistoryMode === 'candle' 
-                ? 0 
-                : (highlightType === 'max' ? 0 : (highlightType === 'min' ? 1 : 2));
-
-            const meta = chartInstance.getDatasetMeta(targetDsIndex);
-            
-            if (meta && meta.data && meta.data[dataIndex]) {
-                const point = meta.data[dataIndex];
-
-                // Önce mevcut seçimi temizle ki aynı index olsa bile tooltip güncellensin
-                chartInstance.setActiveElements([]);
-                chartInstance.tooltip.setActiveElements([], { x: 0, y: 0 });
-                chartInstance.update('none');
-
-                chartInstance.tooltip.setActiveElements([
-                    { datasetIndex: targetDsIndex, index: dataIndex }
-                ], { x: point.x, y: point.y });
-
-                chartInstance.setActiveElements([
-                    { datasetIndex: targetDsIndex, index: dataIndex }
-                ]);
-
-                chartInstance.update();
-                const el = document.getElementById(canvasId);
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
+        
+        // Hala bulunamadıysa en yakın createdAt'e sahip bucket'ı bul
+        if (dataIndex === -1 && rawDataSource.length > 0) {
+            let minDiff = Infinity;
+            rawDataSource.forEach((m, i) => {
+                const diff = Math.abs(new Date(m.createdAt).getTime() - targetMs);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    dataIndex = i;
+                }
+            });
         }
+    }
+
+    if (dataIndex === -1) return;
+
+    // Tip, zaman ve INDEX bilgisini sakla (Özel tooltip başlıkları için)
+    chartInstance._highlightType = highlightType;
+    chartInstance._highlightTime = targetMs;
+    chartInstance._highlightIdx = dataIndex;
+
+    // Canvas üzerinde mouse hareketi olduğunda vurgulamayı temizle
+    if (!chartInstance._hasCanvasListener) {
+        const canvas = document.getElementById(canvasId);
+        if (canvas) {
+            canvas.addEventListener('mousemove', function _clearHighlight() {
+                if (chartInstance._highlightType) {
+                    chartInstance._highlightType = null;
+                    chartInstance._highlightTime = null;
+                    chartInstance._highlightIdx = null;
+                }
+            });
+            chartInstance._hasCanvasListener = true;
+        }
+    }
+
+    const targetDsIndex = currentHistoryMode === 'candle' 
+        ? 0 
+        : 2; // Band grafikte tooltip her zaman ortalama çizgisi üzerinde gösterilir
+
+    const meta = chartInstance.getDatasetMeta(targetDsIndex);
+    
+    if (meta && meta.data && meta.data[dataIndex]) {
+        const point = meta.data[dataIndex];
+
+        // Önce mevcut seçimi temizle ki aynı index olsa bile tooltip güncellensin
+        chartInstance.setActiveElements([]);
+        chartInstance.tooltip.setActiveElements([], { x: 0, y: 0 });
+        chartInstance.update('none');
+
+        chartInstance.tooltip.setActiveElements([
+            { datasetIndex: targetDsIndex, index: dataIndex }
+        ], { x: point.x, y: point.y });
+
+        chartInstance.setActiveElements([
+            { datasetIndex: targetDsIndex, index: dataIndex }
+        ]);
+
+        chartInstance.update();
+        const el = document.getElementById(canvasId);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 };
 
