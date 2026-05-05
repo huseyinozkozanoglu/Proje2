@@ -1255,14 +1255,30 @@ function createCandleChart(canvasId, labelText, candleData, labels, diskName = n
                 chartCtx.stroke();
                 chartCtx.restore();
 
-                // Kenar çizgisi (Opsiyonel)
+                // Kenar çizgileri (her iki taraf)
                 chartCtx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
                 chartCtx.setLineDash([4, 4]);
+                chartCtx.lineWidth = 1;
                 chartCtx.beginPath();
-                chartCtx.moveTo(xEnd === xScale.right ? xStart : xEnd, yTop);
-                chartCtx.lineTo(xEnd === xScale.right ? xStart : xEnd, yBottom);
+                chartCtx.moveTo(xStart, yTop);
+                chartCtx.lineTo(xStart, yBottom);
+                chartCtx.stroke();
+                chartCtx.beginPath();
+                chartCtx.moveTo(xEnd, yTop);
+                chartCtx.lineTo(xEnd, yBottom);
                 chartCtx.stroke();
                 chartCtx.setLineDash([]);
+
+                // Ortaya "Çevrimdışı" etiketi (yeterli alan varsa)
+                if (width > 60) {
+                    const centerX = xStart + width / 2;
+                    const centerY = yTop + yHeight / 2;
+                    chartCtx.font = 'bold 10px Inter, sans-serif';
+                    chartCtx.textAlign = 'center';
+                    chartCtx.textBaseline = 'middle';
+                    chartCtx.fillStyle = isLight ? 'rgba(220, 38, 38, 0.6)' : 'rgba(252, 129, 129, 0.7)';
+                    chartCtx.fillText('⏻ Çevrimdışı', centerX, centerY);
+                }
             };
 
             const drawGapLine = (x) => {
@@ -1289,14 +1305,23 @@ function createCandleChart(canvasId, labelText, candleData, labels, diskName = n
                 drawHatchedArea(xScale.left, firstCandle.x - width / 2 - 2);
             }
 
-            // 2. Aralardaki boşluklar (İnce Çizgi)
+            // 2. Aralardaki boşluklar (Taralı Alan — iki mum arasını kapsar)
             for (let i = 0; i < data.length - 1; i++) {
-                const currentEndT = data[i].tEnd || data[i].t; // Issue 1 Fix
+                const currentEndT = data[i].tEnd || data[i].t;
                 if (data[i+1].t - currentEndT > threshold) {
                     const p1 = meta.data[i];
-                    if (p1) {
-                        const width = p1.width || 10;
-                        drawGapLine(p1.x + width / 2 + 5); 
+                    const p2 = meta.data[i + 1];
+                    if (p1 && p2) {
+                        const w1 = p1.width || 10;
+                        const w2 = p2.width || 10;
+                        const gapStart = p1.x + w1 / 2 + 2;
+                        const gapEnd = p2.x - w2 / 2 - 2;
+                        if (gapEnd - gapStart > 4) {
+                            drawHatchedArea(gapStart, gapEnd);
+                        } else {
+                            // Çok dar alan varsa sadece ince çizgi çiz
+                            drawGapLine((gapStart + gapEnd) / 2);
+                        }
                     }
                 }
             }
