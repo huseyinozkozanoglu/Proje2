@@ -372,83 +372,124 @@ public class AgentTelemetryService : BaseService, IAgentTelemetryService
 
     public async Task<ServiceResult<TopWarningsReportDto>> GetTopWarningsAsync(int userId, bool isAdmin, DateTime? startDate = null, DateTime? endDate = null)
     {
-        var query = _db.MetricWarningLogs
-            .Include(w => w.Computer)
-            .Include(w => w.MetricType)
-            .Include(w => w.ComputerDisk)
-            .AsQueryable();
-
-        // =======================================================
-        // YENİ EKLENDİ: Tarih filtrelerini Query'ye uyguluyoruz
-        // =======================================================
-        if (startDate.HasValue)
-        {
-            var startOfDay = startDate.Value.Date;
-            query = query.Where(w => w.CreatedAt >= startOfDay);
-        }
-        if (endDate.HasValue)
-        {
-            // Seçilen günün 23:59:59'unu kapsayacak şekilde ayarlıyoruz
-            var endOfDay = endDate.Value.Date.AddDays(1).AddTicks(-1);
-            query = query.Where(w => w.CreatedAt <= endOfDay);
-        }
+        // 1. ADIM: YETKİLİ BİLGİSAYARLARI HIZLICA BELİRLEME
+        var allowedComputersQuery = _db.Computers.AsNoTracking();
 
         if (!isAdmin)
         {
-            var accessibleCompIds = await _db.UserComputerAccesses
-                .Where(x => x.UserId == userId && !x.IsDeleted)
-                .Select(x => x.ComputerId)
-                .ToListAsync();
-
-            var accessibleTagIds = await _db.UserTagAccesses
-                .Where(x => x.UserId == userId && !x.IsDeleted)
-                .Select(x => x.TagId)
-                .ToListAsync();
-
-            query = query.Where(w =>
-                accessibleCompIds.Contains(w.ComputerId) ||
-                w.Computer.Tags.Any(t => accessibleTagIds.Contains(t.Id)));
+            allowedComputersQuery = allowedComputersQuery.Where(c =>
+                _db.UserComputerAccesses.Any(uca => uca.UserId == userId && !uca.IsDeleted && uca.ComputerId == c.Id) ||
+                _db.ComputerTags.Any(ct => !ct.IsDeleted && ct.ComputerId == c.Id &&
+                    _db.UserTagAccesses.Any(uta => uta.UserId == userId && !uta.IsDeleted && uta.TagId == ct.TagId))
+            );
         }
+
+        var allowedCompIds = await allowedComputersQuery.Select(c => c.Id).ToListAsync();
+
+        if (!allowedCompIds.Any())
+            return ServiceResult<TopWarningsReportDto>.Success(new TopWarningsReportDto());
+
+        // 2. ADIM: SADECE YABANCI ANAHTARLAR (FOREIGN KEYS) ÜZERİNDEN TEK BİR SORGGU (Include YOK)
+        var logQuery = _db.MetricWarningLogs
+        .AsNoTracking()
+        .Where(w => allowedComputersQuery.Any(ac => ac.Id == w.ComputerId));
+
+        if (startDate.HasValue)
+        {
+            var startOfDay = startDate.Value.Date;
+            logQuery = logQuery.Where(w => w.CreatedAt >= startOfDay);
+        }
+        if (endDate.HasValue)
+        {
+            var endOfDay = endDate.Value.Date.AddDays(1).AddTicks(-1);
+            logQuery = logQuery.Where(w => w.CreatedAt <= endOfDay);
+        }
+
+        // Gruplama ve Sayma işlemi aynı kalıyor...
+        var rawWarningCounts = await logQuery
+            .GroupBy(w => new { w.MetricTypeId, w.ComputerId, w.ComputerDiskId })
+            .Select(g => new
+            {
+                MetricTypeId = g.Key.MetricTypeId,
+                ComputerId = g.Key.ComputerId,
+                ComputerDiskId = g.Key.ComputerDiskId,
+                WarningCount = g.Count()
+            })
+            .ToListAsync();
 
         var report = new TopWarningsReportDto();
 
-        report.TopCpuWarnings = await query
+        if (!rawWarningCounts.Any())
+            return ServiceResult<TopWarningsReportDto>.Success(report);
+
+        // 3. ADIM: RAM ÜZERİNDE İSİM EŞLEŞTİRMELERİ İÇİN SÖZLÜKLERİ HAZIRLAMA
+        // Bilgisayar isimlerini alıyoruz
+        var computersDict = await _db.Computers
+            .AsNoTracking()
+            .Where(c => allowedCompIds.Contains(c.Id))
+            .Select(c => new { c.Id, c.DisplayName, c.MachineName })
+            .ToDictionaryAsync(c => c.Id);
+
+        // Disk isimlerini alıyoruz (Sadece uyarı almış diskleri çekiyoruz ki sorgu minicik olsun)
+        var diskIdsToFetch = rawWarningCounts
+            .Where(x => x.ComputerDiskId.HasValue)
+            .Select(x => x.ComputerDiskId.Value)
+            .Distinct()
+            .ToList();
+
+        var disksDict = new Dictionary<int, string>();
+        if (diskIdsToFetch.Any())
+        {
+            disksDict = await _db.ComputerDisks
+                .AsNoTracking()
+                .Where(d => diskIdsToFetch.Contains(d.Id))
+                .ToDictionaryAsync(d => d.Id, d => d.DiskName);
+        }
+
+        // 4. ADIM: C# TARAFINDA DTO'LARI DOLDURMA (O(1) Maliyetli Dictionary Araması ile)
+
+        // CPU Uyarıları (MetricTypeId == 1)
+        report.TopCpuWarnings = rawWarningCounts
             .Where(w => w.MetricTypeId == 1)
-            .GroupBy(w => new { w.ComputerId, w.Computer.DisplayName, w.Computer.MachineName })
-            .Select(g => new TopWarningItemDto
+            .Select(w => new TopWarningItemDto
             {
-                ComputerId = g.Key.ComputerId,
-                ComputerName = !string.IsNullOrWhiteSpace(g.Key.DisplayName) ? g.Key.DisplayName : g.Key.MachineName,
-                WarningCount = g.Count()
+                ComputerId = w.ComputerId,
+                ComputerName = computersDict.TryGetValue(w.ComputerId, out var comp)
+                    ? (!string.IsNullOrWhiteSpace(comp.DisplayName) ? comp.DisplayName : comp.MachineName)
+                    : "Bilinmeyen Cihaz",
+                WarningCount = w.WarningCount
             })
             .OrderByDescending(x => x.WarningCount)
-            .ToListAsync(); 
+            .ToList();
 
-        report.TopRamWarnings = await query
+        // RAM Uyarıları (MetricTypeId == 2)
+        report.TopRamWarnings = rawWarningCounts
             .Where(w => w.MetricTypeId == 2)
-            .GroupBy(w => new { w.ComputerId, w.Computer.DisplayName, w.Computer.MachineName })
-            .Select(g => new TopWarningItemDto
+            .Select(w => new TopWarningItemDto
             {
-                ComputerId = g.Key.ComputerId,
-                ComputerName = !string.IsNullOrWhiteSpace(g.Key.DisplayName) ? g.Key.DisplayName : g.Key.MachineName,
-                WarningCount = g.Count()
+                ComputerId = w.ComputerId,
+                ComputerName = computersDict.TryGetValue(w.ComputerId, out var comp)
+                    ? (!string.IsNullOrWhiteSpace(comp.DisplayName) ? comp.DisplayName : comp.MachineName)
+                    : "Bilinmeyen Cihaz",
+                WarningCount = w.WarningCount
             })
             .OrderByDescending(x => x.WarningCount)
-            .ToListAsync();
+            .ToList();
 
-        report.TopDiskWarnings = await query
-            .Where(w => w.MetricTypeId == 3)
-            // Gruplamada artık ilişkisel tablodan (ComputerDisk) disk adını alıyoruz
-            .GroupBy(w => new { w.ComputerId, w.Computer.DisplayName, w.Computer.MachineName, w.ComputerDisk.DiskName })
-            .Select(g => new TopWarningItemDto
+        // Disk Uyarıları (MetricTypeId == 3)
+        report.TopDiskWarnings = rawWarningCounts
+            .Where(w => w.MetricTypeId == 3 && w.ComputerDiskId.HasValue)
+            .Select(w => new TopWarningItemDto
             {
-                ComputerId = g.Key.ComputerId,
-                ComputerName = !string.IsNullOrWhiteSpace(g.Key.DisplayName) ? g.Key.DisplayName : g.Key.MachineName,
-                DiskName = g.Key.DiskName, // ComputerDisk üzerinden gelen isim
-                WarningCount = g.Count()
+                ComputerId = w.ComputerId,
+                ComputerName = computersDict.TryGetValue(w.ComputerId, out var comp)
+                    ? (!string.IsNullOrWhiteSpace(comp.DisplayName) ? comp.DisplayName : comp.MachineName)
+                    : "Bilinmeyen Cihaz",
+                DiskName = disksDict.TryGetValue(w.ComputerDiskId.Value, out var diskName) ? diskName : "Bilinmeyen Disk",
+                WarningCount = w.WarningCount
             })
             .OrderByDescending(x => x.WarningCount)
-            .ToListAsync();
+            .ToList();
 
         return ServiceResult<TopWarningsReportDto>.Success(report);
     }

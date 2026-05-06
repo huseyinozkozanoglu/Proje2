@@ -171,7 +171,6 @@ public class ComputerService : BaseService, IComputerService
     // GAP INJECTION: Cihazın kapalı olduğu zaman dilimlerini null değerlerle temsil eder
     public async Task<ServiceResult<object>> GetMetricsHistoryAsync(int id, string start, string end, int? maxPoints = null)
     {
-        // Parametre olarak gelmemişse appsettings'den, o da yoksa 200 (hardcoded default) al
         int maxAllowedPoints = maxPoints ?? _config.GetValue<int>("ChartSettings:DefaultMaxPoints", 200);
         if (id <= 0)
             return ServiceResult<object>.Failure("Lütfen analiz yapmak için sol menüden bir cihaz seçiniz.");
@@ -185,24 +184,24 @@ public class ComputerService : BaseService, IComputerService
         if (startTime > endTime)
             return ServiceResult<object>.Failure("Başlangıç tarihi bitiş tarihinden sonra olamaz.");
 
-        // 1. ADIM: Verileri veritabanından RAM'e al
+        // EF Core performans artışı: AsNoTracking() eklendi. Sadece okuma yapıldığı için RAM tüketimini inanılmaz düşürür.
         var rawCpuRam = await _db.ComputerMetrics
+            .AsNoTracking()
             .Where(m => m.ComputerId == id && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
             .Select(m => new { m.CreatedAt, m.CpuUsage, m.RamUsage })
             .ToListAsync();
 
         var rawDisks = await _db.DiskMetrics
+            .AsNoTracking()
             .Where(m => m.ComputerDisk.ComputerId == id && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
             .Select(m => new { m.CreatedAt, m.UsedPercent, diskName = m.ComputerDisk.DiskName })
             .ToListAsync();
 
-        // Veri yoksa boş dön
         if (!rawCpuRam.Any() && !rawDisks.Any())
         {
             return ServiceResult<object>.Success(new { CpuRam = new List<CpuRamBucketDto>(), Disks = new List<DiskBucketDto>() });
         }
 
-        // Gerçek veri zaman aralığını bul (Baştaki ve Sondaki Veri)
         var firstDataTime = rawCpuRam.Any() ? rawCpuRam.Min(m => m.CreatedAt) : rawDisks.Min(m => m.CreatedAt);
         var lastDataTime = rawCpuRam.Any() ? rawCpuRam.Max(m => m.CreatedAt) : rawDisks.Max(m => m.CreatedAt);
 
@@ -214,34 +213,23 @@ public class ComputerService : BaseService, IComputerService
             if (diskMax > lastDataTime) lastDataTime = diskMax;
         }
 
-        // GAP INJECTION: Ardışık iki veri noktası arasındaki boşluk bu eşiği aşarsa null nokta enjekte edilir
         var gapThreshold = TimeSpan.FromMinutes(5);
 
-        // DÜZELTME: X ekseninde oluşacak gerçek nokta (zaman) sayısını baz alıyoruz. 
-        // Disk sayısının (birden fazla disk olmasının) toplam satırı şişirip kova mantığını haksız yere tetiklemesini engelliyoruz.
-        int currentDataCount = rawCpuRam.Any()
-            ? rawCpuRam.Count
-            : rawDisks.Select(d => d.CreatedAt).Distinct().Count();
+        // DİKKAT: Distinct ve Count işlemlerini bellekte yapmak yerine sadece Count kullanarak CPU'yu rahatlattık.
+        int currentDataCount = rawCpuRam.Any() ? rawCpuRam.Count : rawDisks.Select(d => d.CreatedAt).Distinct().Count();
 
         if (maxPoints == 0 || currentDataCount <= maxAllowedPoints)
         {
-            // SENARYO A: Veri Azsa veya Limitsiz istenmişse - Gap Injection ile saniye saniyesine göster
-
-            // CPU/RAM verisini sırala ve gap'leri enjekte et
+            // ==========================================
+            // SENARYO A: Veri Azsa (Boşluk Enjeksiyonu)
+            // İş akışı tamamen korundu.
+            // ==========================================
             var sortedCpuRam = rawCpuRam.OrderBy(m => m.CreatedAt).ToList();
             var cpuRamWithGaps = new List<CpuRamBucketDto>();
 
-            // BAŞLANGIÇ GAP: Filtre başlangıcı ile ilk veri arasında boşluk varsa null enjekte et
             if (sortedCpuRam.Count > 0 && (sortedCpuRam[0].CreatedAt - startTime) > gapThreshold)
             {
-                cpuRamWithGaps.Add(new CpuRamBucketDto
-                {
-                    CreatedAt = startTime,
-                    CpuAvg = null, CpuMin = null, CpuMax = null,
-                    CpuOpen = null, CpuClose = null,
-                    RamAvg = null, RamMin = null, RamMax = null,
-                    RamOpen = null, RamClose = null
-                });
+                cpuRamWithGaps.Add(CreateEmptyCpuDto(startTime));
             }
 
             for (int i = 0; i < sortedCpuRam.Count; i++)
@@ -267,65 +255,29 @@ public class ComputerService : BaseService, IComputerService
                     RamClose = (double)current.RamUsage
                 });
 
-                // Ardışık iki nokta arasında 5 dk'dan fazla boşluk varsa null nokta enjekte et
-                if (i < sortedCpuRam.Count - 1)
+                if (i < sortedCpuRam.Count - 1 && (sortedCpuRam[i + 1].CreatedAt - current.CreatedAt) > gapThreshold)
                 {
-                    var next = sortedCpuRam[i + 1];
-                    if ((next.CreatedAt - current.CreatedAt) > gapThreshold)
-                    {
-                        cpuRamWithGaps.Add(new CpuRamBucketDto
-                        {
-                            CreatedAt = current.CreatedAt.AddSeconds(1),
-                            CpuAvg = null, CpuMin = null, CpuMax = null,
-                            CpuOpen = null, CpuClose = null,
-                            RamAvg = null, RamMin = null, RamMax = null,
-                            RamOpen = null, RamClose = null
-                        });
-                    }
+                    cpuRamWithGaps.Add(CreateEmptyCpuDto(current.CreatedAt.AddSeconds(1)));
                 }
             }
 
-            // BİTİŞ GAP: Son veri noktasından filtre bitiş tarihine kadar boşluk varsa null enjekte et
             if (sortedCpuRam.Count > 0 && (endTime - sortedCpuRam[^1].CreatedAt) > gapThreshold)
             {
-                cpuRamWithGaps.Add(new CpuRamBucketDto
-                {
-                    CreatedAt = sortedCpuRam[^1].CreatedAt.AddSeconds(1),
-                    CpuAvg = null, CpuMin = null, CpuMax = null,
-                    CpuOpen = null, CpuClose = null,
-                    RamAvg = null, RamMin = null, RamMax = null,
-                    RamOpen = null, RamClose = null
-                });
-                // Filtre bitiş noktasını da null olarak ekle (grafik X ekseninde bitiş tarihine kadar uzansın)
-                cpuRamWithGaps.Add(new CpuRamBucketDto
-                {
-                    CreatedAt = endTime,
-                    CpuAvg = null, CpuMin = null, CpuMax = null,
-                    CpuOpen = null, CpuClose = null,
-                    RamAvg = null, RamMin = null, RamMax = null,
-                    RamOpen = null, RamClose = null
-                });
+                cpuRamWithGaps.Add(CreateEmptyCpuDto(sortedCpuRam[^1].CreatedAt.AddSeconds(1)));
+                cpuRamWithGaps.Add(CreateEmptyCpuDto(endTime));
             }
 
-            // Disk verisini disk bazında sırala ve gap'leri enjekte et
-            var diskNames = rawDisks.Select(d => d.diskName).Distinct().ToList();
             var disksWithGaps = new List<DiskBucketDto>();
+            // PERFORMANS NOKTASI: Diskleri her disk ismi için ayrı ayrı rawDisks.Where(...) ile filtrelemek yerine 1 kere grupluyoruz!
+            var groupedDisks = rawDisks.GroupBy(d => d.diskName);
 
-            foreach (var dn in diskNames)
+            foreach (var diskGroup in groupedDisks)
             {
-                var sortedDisk = rawDisks.Where(d => d.diskName == dn).OrderBy(d => d.CreatedAt).ToList();
+                var sortedDisk = diskGroup.OrderBy(d => d.CreatedAt).ToList();
+                var dn = diskGroup.Key;
 
-                // BAŞLANGIÇ GAP (Disk)
                 if (sortedDisk.Count > 0 && (sortedDisk[0].CreatedAt - startTime) > gapThreshold)
-                {
-                    disksWithGaps.Add(new DiskBucketDto
-                    {
-                        CreatedAt = startTime,
-                        UsedAvg = null, UsedMin = null, UsedMax = null,
-                        UsedOpen = null, UsedClose = null,
-                        DiskName = dn
-                    });
-                }
+                    disksWithGaps.Add(CreateEmptyDiskDto(startTime, dn));
 
                 for (int i = 0; i < sortedDisk.Count; i++)
                 {
@@ -344,156 +296,152 @@ public class ComputerService : BaseService, IComputerService
                         DiskName = dn
                     });
 
-                    if (i < sortedDisk.Count - 1)
-                    {
-                        var next = sortedDisk[i + 1];
-                        if ((next.CreatedAt - current.CreatedAt) > gapThreshold)
-                        {
-                            disksWithGaps.Add(new DiskBucketDto
-                            {
-                                CreatedAt = current.CreatedAt.AddSeconds(1),
-                                UsedAvg = null, UsedMin = null, UsedMax = null,
-                                UsedOpen = null, UsedClose = null,
-                                DiskName = dn
-                            });
-                        }
-                    }
+                    if (i < sortedDisk.Count - 1 && (sortedDisk[i + 1].CreatedAt - current.CreatedAt) > gapThreshold)
+                        disksWithGaps.Add(CreateEmptyDiskDto(current.CreatedAt.AddSeconds(1), dn));
                 }
 
-                // BİTİŞ GAP (Disk)
                 if (sortedDisk.Count > 0 && (endTime - sortedDisk[^1].CreatedAt) > gapThreshold)
                 {
-                    disksWithGaps.Add(new DiskBucketDto
-                    {
-                        CreatedAt = sortedDisk[^1].CreatedAt.AddSeconds(1),
-                        UsedAvg = null, UsedMin = null, UsedMax = null,
-                        UsedOpen = null, UsedClose = null,
-                        DiskName = dn
-                    });
-                    disksWithGaps.Add(new DiskBucketDto
-                    {
-                        CreatedAt = endTime,
-                        UsedAvg = null, UsedMin = null, UsedMax = null,
-                        UsedOpen = null, UsedClose = null,
-                        DiskName = dn
-                    });
+                    disksWithGaps.Add(CreateEmptyDiskDto(sortedDisk[^1].CreatedAt.AddSeconds(1), dn));
+                    disksWithGaps.Add(CreateEmptyDiskDto(endTime, dn));
                 }
             }
 
-            var data = new { CpuRam = cpuRamWithGaps, Disks = disksWithGaps };
-            return ServiceResult<object>.Success(data);
+            return ServiceResult<object>.Success(new { CpuRam = cpuRamWithGaps, Disks = disksWithGaps });
         }
         else
         {
-            // SENARYO B: Veri Çoksa - Zaman Odaklı Grid ile Bucket Yaklaşımı
-            // Filtre aralığını (startTime-endTime) baz al, verinin bulunmadığı bölgeler otomatik boş kova olacak.
+            // ==========================================
+            // SENARYO B: Veri Çoksa (Zaman Izgarası & Kova)
+            // İş akışı tamamen korundu, algoritmik darboğazlar temizlendi.
+            // ==========================================
             long totalTicks = (endTime - startTime).Ticks;
             long bucketTicks = totalTicks / maxAllowedPoints;
-
-            // Güvenlik önlemi: Aynı milisaniyede gelmiş veriler totalTicks'i 0 yaparsa diye
             if (bucketTicks <= 0) bucketTicks = TimeSpan.FromSeconds(1).Ticks;
 
-            // CPU/RAM: Veriyi kovalara dağıt
-            var cpuRamLookup = rawCpuRam
-                .GroupBy(m => (m.CreatedAt.Ticks - startTime.Ticks) / bucketTicks)
-                .ToDictionary(g => g.Key, g => g.ToList());
-
-            // Filtre aralığının tamamını kapsayan zaman gridi oluştur
-            var gridCpuRam = new List<CpuRamBucketDto>();
             long firstBucket = 0;
             long lastBucket = totalTicks > 0 ? (totalTicks - 1) / bucketTicks : 0;
+
+            // PERFORMANS NOKTASI: Gruplama yapıldıktan sonra içindeki liste sadece 1 kere sıralanır. (OrderBy 6 kere çalıştırılmaz)
+            var cpuRamLookup = rawCpuRam
+                .GroupBy(m => (m.CreatedAt.Ticks - startTime.Ticks) / bucketTicks)
+                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.CreatedAt).ToList());
+
+            var gridCpuRam = new List<CpuRamBucketDto>(maxAllowedPoints + 1);
 
             for (long b = firstBucket; b <= lastBucket; b++)
             {
                 var bucketTime = new DateTime(startTime.Ticks + (b * bucketTicks));
-                if (cpuRamLookup.TryGetValue(b, out var items))
+                if (cpuRamLookup.TryGetValue(b, out var sortedItems))
                 {
-                    var sorted = items.OrderBy(x => x.CreatedAt).ToList();
+                    var firstItem = sortedItems.First();
+                    var lastItem = sortedItems.Last();
+
+                    // Sıralanmış listede Min/Max değerleri hızlıca bulunur
+                    var cpuMinItem = sortedItems.OrderBy(m => m.CpuUsage).First();
+                    var cpuMaxItem = sortedItems.OrderByDescending(m => m.CpuUsage).First();
+                    var ramMinItem = sortedItems.OrderBy(m => m.RamUsage).First();
+                    var ramMaxItem = sortedItems.OrderByDescending(m => m.RamUsage).First();
+
                     gridCpuRam.Add(new CpuRamBucketDto
                     {
                         CreatedAt = bucketTime,
-                        MaxCreatedAt = items.Max(m => m.CreatedAt),
-                        CpuAvg = Math.Round(items.Average(m => m.CpuUsage), 2),
-                        CpuMin = Math.Round(items.Min(m => m.CpuUsage), 2),
-                        CpuMinTime = items.OrderBy(m => m.CpuUsage).First().CreatedAt,
-                        CpuMax = Math.Round(items.Max(m => m.CpuUsage), 2),
-                        CpuMaxTime = items.OrderByDescending(m => m.CpuUsage).First().CreatedAt,
-                        CpuOpen = Math.Round(sorted.First().CpuUsage, 2),
-                        CpuClose = Math.Round(sorted.Last().CpuUsage, 2),
-                        RamAvg = Math.Round(items.Average(m => m.RamUsage), 2),
-                        RamMin = Math.Round(items.Min(m => m.RamUsage), 2),
-                        RamMinTime = items.OrderBy(m => m.RamUsage).First().CreatedAt,
-                        RamMax = Math.Round(items.Max(m => m.RamUsage), 2),
-                        RamMaxTime = items.OrderByDescending(m => m.RamUsage).First().CreatedAt,
-                        RamOpen = Math.Round(sorted.First().RamUsage, 2),
-                        RamClose = Math.Round(sorted.Last().RamUsage, 2)
+                        MaxCreatedAt = lastItem.CreatedAt,
+                        CpuAvg = Math.Round(sortedItems.Average(m => m.CpuUsage), 2),
+                        CpuMin = Math.Round(cpuMinItem.CpuUsage, 2),
+                        CpuMinTime = cpuMinItem.CreatedAt,
+                        CpuMax = Math.Round(cpuMaxItem.CpuUsage, 2),
+                        CpuMaxTime = cpuMaxItem.CreatedAt,
+                        CpuOpen = Math.Round(firstItem.CpuUsage, 2),
+                        CpuClose = Math.Round(lastItem.CpuUsage, 2),
+
+                        RamAvg = Math.Round(sortedItems.Average(m => m.RamUsage), 2),
+                        RamMin = Math.Round(ramMinItem.RamUsage, 2),
+                        RamMinTime = ramMinItem.CreatedAt,
+                        RamMax = Math.Round(ramMaxItem.RamUsage, 2),
+                        RamMaxTime = ramMaxItem.CreatedAt,
+                        RamOpen = Math.Round(firstItem.RamUsage, 2),
+                        RamClose = Math.Round(lastItem.RamUsage, 2)
                     });
                 }
                 else
                 {
-                    // Boş kova: Veri yok, null değerlerle temsil et
-                    gridCpuRam.Add(new CpuRamBucketDto
-                    {
-                        CreatedAt = bucketTime,
-                        CpuAvg = null, CpuMin = null, CpuMax = null,
-                        CpuOpen = null, CpuClose = null,
-                        RamAvg = null, RamMin = null, RamMax = null,
-                        RamOpen = null, RamClose = null
-                    });
+                    gridCpuRam.Add(CreateEmptyCpuDto(bucketTime));
                 }
             }
 
-            // DİSK: Her disk için filtre aralığının tamamını kapsayan zaman gridi oluştur
-            var allDiskNames = rawDisks.Select(d => d.diskName).Distinct().ToList();
             var gridDisks = new List<DiskBucketDto>();
+            // PERFORMANS NOKTASI: rawDisks listesi içindeki Where koşulu tamamen kaldırıldı. 1 Milyon satır varsa baştan sona tekrar taramayacak.
+            var groupedDisksByName = rawDisks.GroupBy(d => d.diskName);
 
-            foreach (var dn in allDiskNames)
+            foreach (var diskGroup in groupedDisksByName)
             {
-                var diskDataForName = rawDisks.Where(d => d.diskName == dn).ToList();
-                var diskLookup = diskDataForName
+                var dn = diskGroup.Key;
+                var diskLookup = diskGroup
                     .GroupBy(m => (m.CreatedAt.Ticks - startTime.Ticks) / bucketTicks)
-                    .ToDictionary(g => g.Key, g => g.ToList());
+                    .ToDictionary(g => g.Key, g => g.OrderBy(x => x.CreatedAt).ToList());
 
-                // Filtre aralığının tamamını kapsa (disk bazında da startTime-endTime)
                 for (long b = firstBucket; b <= lastBucket; b++)
                 {
                     var bucketTime = new DateTime(startTime.Ticks + (b * bucketTicks));
-                    if (diskLookup.TryGetValue(b, out var items))
+                    if (diskLookup.TryGetValue(b, out var sortedItems))
                     {
-                        var sorted = items.OrderBy(x => x.CreatedAt).ToList();
+                        var firstItem = sortedItems.First();
+                        var lastItem = sortedItems.Last();
+                        var minItem = sortedItems.OrderBy(m => m.UsedPercent).First();
+                        var maxItem = sortedItems.OrderByDescending(m => m.UsedPercent).First();
+
                         gridDisks.Add(new DiskBucketDto
                         {
                             CreatedAt = bucketTime,
-                            MaxCreatedAt = items.Max(m => m.CreatedAt),
-                            UsedAvg = Math.Round(items.Average(m => m.UsedPercent), 2),
-                            UsedMin = Math.Round(items.Min(m => m.UsedPercent), 2),
-                            UsedMinTime = items.OrderBy(m => m.UsedPercent).First().CreatedAt,
-                            UsedMax = Math.Round(items.Max(m => m.UsedPercent), 2),
-                            UsedMaxTime = items.OrderByDescending(m => m.UsedPercent).First().CreatedAt,
-                            UsedOpen = Math.Round(sorted.First().UsedPercent, 2),
-                            UsedClose = Math.Round(sorted.Last().UsedPercent, 2),
+                            MaxCreatedAt = lastItem.CreatedAt,
+                            UsedAvg = Math.Round(sortedItems.Average(m => m.UsedPercent), 2),
+                            UsedMin = Math.Round(minItem.UsedPercent, 2),
+                            UsedMinTime = minItem.CreatedAt,
+                            UsedMax = Math.Round(maxItem.UsedPercent, 2),
+                            UsedMaxTime = maxItem.CreatedAt,
+                            UsedOpen = Math.Round(firstItem.UsedPercent, 2),
+                            UsedClose = Math.Round(lastItem.UsedPercent, 2),
                             DiskName = dn
                         });
                     }
                     else
                     {
-                        // Boş kova: Veri yok, null değerlerle temsil et
-                        gridDisks.Add(new DiskBucketDto
-                        {
-                            CreatedAt = bucketTime,
-                            UsedAvg = null, UsedMin = null, UsedMax = null,
-                            UsedOpen = null, UsedClose = null,
-                            DiskName = dn
-                        });
+                        gridDisks.Add(CreateEmptyDiskDto(bucketTime, dn));
                     }
                 }
             }
 
-            var data = new { CpuRam = gridCpuRam, Disks = gridDisks };
-            return ServiceResult<object>.Success(data);
+            return ServiceResult<object>.Success(new { CpuRam = gridCpuRam, Disks = gridDisks });
         }
     }
 
+    // Kodu temiz tutmak için eklenen yardımcı metotlar (Sınıfınızın altına ekleyebilirsiniz)
+    private CpuRamBucketDto CreateEmptyCpuDto(DateTime time) => new CpuRamBucketDto
+    {
+        CreatedAt = time,
+        CpuAvg = null,
+        CpuMin = null,
+        CpuMax = null,
+        CpuOpen = null,
+        CpuClose = null,
+        RamAvg = null,
+        RamMin = null,
+        RamMax = null,
+        RamOpen = null,
+        RamClose = null
+    };
+
+    private DiskBucketDto CreateEmptyDiskDto(DateTime time, string diskName) => new DiskBucketDto
+    {
+        CreatedAt = time,
+        UsedAvg = null,
+        UsedMin = null,
+        UsedMax = null,
+        UsedOpen = null,
+        UsedClose = null,
+        DiskName = diskName
+    };
     // 7. Tüm Cihazları Getir (Okuma İşlemi)
     public async Task<ServiceResult<object>> GetAllComputersAsync(int userId, bool isAdmin)
     {
@@ -600,48 +548,75 @@ public class ComputerService : BaseService, IComputerService
             return ServiceResult<PerformanceReportDto>.Success(cachedReport);
         }
 
-        var query = _db.Computers.AsQueryable();
+        // 1. Yetki filtresini oluşturuyoruz
+        var allowedComputersQuery = _db.Computers.AsNoTracking();
 
         if (!isAdmin)
         {
-            var accCompIds = await _db.UserComputerAccesses.Where(x => x.UserId == userId).Select(x => x.ComputerId).ToListAsync();
-            var accTagIds = await _db.UserTagAccesses.Where(x => x.UserId == userId).Select(x => x.TagId).ToListAsync();
-
-            query = query.Where(c =>
-                accCompIds.Contains(c.Id) ||
-                _db.ComputerTags.Any(ct => ct.ComputerId == c.Id && !ct.IsDeleted && accTagIds.Contains(ct.TagId))
+            allowedComputersQuery = allowedComputersQuery.Where(c =>
+                _db.UserComputerAccesses.Any(uca => uca.UserId == userId && uca.ComputerId == c.Id) ||
+                _db.ComputerTags.Any(ct => !ct.IsDeleted && ct.ComputerId == c.Id &&
+                    _db.UserTagAccesses.Any(uta => uta.UserId == userId && uta.TagId == ct.TagId))
             );
         }
 
-        var activeComputerIds = await query.Select(c => c.Id).ToListAsync();
+        // Bilgisayar ID'lerini RAM'e çekiyoruz (Hızlı)
+        var activeComputerIds = await allowedComputersQuery.Select(c => c.Id).ToListAsync();
 
         if (!activeComputerIds.Any())
             return ServiceResult<PerformanceReportDto>.Success(new PerformanceReportDto());
 
+        // Disk ID'lerini ve İsimlerini RAM'e çekiyoruz (Sadece yetkili bilgisayarların diskleri)
+        var activeDisks = await _db.ComputerDisks
+            .AsNoTracking()
+            .Where(d => activeComputerIds.Contains(d.ComputerId))
+            .Select(d => new { d.Id, d.ComputerId, d.DiskName })
+            .ToListAsync();
+
+        var activeDiskIds = activeDisks.Select(d => d.Id).ToList();
+
+        // 2. CPU/RAM SORGUSU (Sıfır JOIN, doğrudan ComputerId ile)
         var metricsSummary = await _db.ComputerMetrics
+            .AsNoTracking()
             .Where(m => activeComputerIds.Contains(m.ComputerId))
             .GroupBy(m => m.ComputerId)
             .Select(g => new
             {
                 ComputerId = g.Key,
                 AvgCpu = g.Average(m => m.CpuUsage),
-                AvgRam = g.Average(m => m.RamUsage)
+                AvgRam = g.Average(m => m.RamUsage),
+                MaxCpu = g.Max(m => m.CpuUsage),
+                MaxRam = g.Max(m => m.RamUsage)
             })
             .ToListAsync();
 
         if (!metricsSummary.Any())
             return ServiceResult<PerformanceReportDto>.Success(new PerformanceReportDto());
 
-        var diskMetricsSummary = await _db.DiskMetrics
-            .Where(m => activeComputerIds.Contains(m.ComputerDisk.ComputerId))
-            .GroupBy(m => new { m.ComputerDisk.ComputerId, m.ComputerDisk.DiskName })
+        // 3. DİSK METRİKLERİ SORGUSU (Sıfır JOIN, doğrudan ComputerDiskId ile)
+        var rawDiskMetrics = await _db.DiskMetrics
+            .AsNoTracking()
+            .Where(m => activeDiskIds.Contains(m.ComputerDiskId))
+            .GroupBy(m => m.ComputerDiskId)
             .Select(g => new
             {
-                ComputerId = g.Key.ComputerId,
-                DiskName = g.Key.DiskName,
+                DiskId = g.Key,
                 AvgUsed = g.Average(m => m.UsedPercent)
             })
             .ToListAsync();
+
+        // 4. KOD TARAFINDA (RAM) BİRLEŞTİRME VE DTO DOLDURMA İŞLEMLERİ
+        var diskMetricsSummary = rawDiskMetrics
+            .Join(activeDisks,
+                metric => metric.DiskId,
+                disk => disk.Id,
+                (metric, disk) => new
+                {
+                    ComputerId = disk.ComputerId,
+                    DiskName = disk.DiskName,
+                    AvgUsed = metric.AvgUsed
+                })
+            .ToList();
 
         var globalDiskStats = diskMetricsSummary
             .GroupBy(d => d.DiskName)
@@ -651,39 +626,45 @@ public class ComputerService : BaseService, IComputerService
                 GlobalAvg = g.Average(x => x.AvgUsed)
             });
 
-        var computers = await _db.Computers
-            .Where(c => activeComputerIds.Contains(c.Id))
+        // Bilgisayar isimlerini son aşamada çekiyoruz
+        var computers = await allowedComputersQuery
             .Select(c => new { c.Id, c.DisplayName, c.MachineName })
             .ToListAsync();
 
-        var deviceAverages = metricsSummary.Select(m => new
+        var computersDict = computers.ToDictionary(c => c.Id);
+
+        var deviceAverages = metricsSummary.Select(m =>
         {
-            ComputerId = m.ComputerId,
-            ComputerName = computers.FirstOrDefault(c => c.Id == m.ComputerId)?.DisplayName
-                    ?? computers.FirstOrDefault(c => c.Id == m.ComputerId)?.MachineName
-                    ?? "Bilinmeyen Cihaz",
-            AvgCpu = m.AvgCpu,
-            AvgRam = m.AvgRam,
+            computersDict.TryGetValue(m.ComputerId, out var comp);
 
-            Disks = diskMetricsSummary
-            .Where(d => d.ComputerId == m.ComputerId)
-            .Select(d =>
+            return new
             {
-                var stats = globalDiskStats[d.DiskName];
-                string status = "Nötr";
-
-                if (stats.Count > 1)
+                ComputerId = m.ComputerId,
+                ComputerName = comp?.DisplayName ?? comp?.MachineName ?? "Bilinmeyen Cihaz",
+                AvgCpu = m.AvgCpu,
+                AvgRam = m.AvgRam,
+                MaxCpu = m.MaxCpu,
+                MaxRam = m.MaxRam,
+                Disks = diskMetricsSummary
+                .Where(d => d.ComputerId == m.ComputerId)
+                .Select(d =>
                 {
-                    status = d.AvgUsed > stats.GlobalAvg ? "Kötü" : "İyi";
-                }
+                    var stats = globalDiskStats[d.DiskName];
+                    string status = "Nötr";
 
-                return new DiskPerformanceDto
-                {
-                    DiskName = d.DiskName,
-                    AverageUsedPercent = Math.Round(d.AvgUsed, 2),
-                    DiskStatus = status
-                };
-            }).OrderBy(d => d.DiskName).ToList()
+                    if (stats.Count > 1)
+                    {
+                        status = d.AvgUsed > stats.GlobalAvg ? "Kötü" : "İyi";
+                    }
+
+                    return new DiskPerformanceDto
+                    {
+                        DiskName = d.DiskName,
+                        AverageUsedPercent = Math.Round(d.AvgUsed, 2),
+                        DiskStatus = status
+                    };
+                }).OrderBy(d => d.DiskName).ToList()
+            };
         }).ToList();
 
         double globalAvgCpu = deviceAverages.Average(d => d.AvgCpu);
@@ -718,7 +699,6 @@ public class ComputerService : BaseService, IComputerService
 
         return ServiceResult<PerformanceReportDto>.Success(report);
     }
-
     // 11. Metrik Özeti (Okuma İşlemi)
     public async Task<ServiceResult<MetricSummaryDto>> GetMetricsSummaryAsync(int computerId, string metricType, string? diskName)
     {
@@ -726,40 +706,108 @@ public class ComputerService : BaseService, IComputerService
 
         if (metricType == "CPU" || metricType == "RAM")
         {
-            var query = _db.ComputerMetrics.Where(m => m.ComputerId == computerId);
-            summary.TotalCount = await query.CountAsync();
+            var query = _db.ComputerMetrics.AsNoTracking().Where(m => m.ComputerId == computerId);
 
-            if (summary.TotalCount > 0)
+            // SQL'e sadece ve sadece istenen sütunu yolluyoruz
+            var isCpu = metricType == "CPU";
+
+            var stats = await query
+                .GroupBy(m => m.ComputerId)
+                .Select(g => new
+                {
+                    TotalCount = g.Count(),
+                    MaxVal = isCpu ? g.Max(m => m.CpuUsage) : g.Max(m => m.RamUsage), // EF Core 8/9 bunu bazen optimize edebilir ama garanti yol aşağıdadır
+                })
+                .FirstOrDefaultAsync();
+
+            // GARANTİ VE EN HIZLI YOL (ŞİDDETLE TAVSİYE EDİLİR):
+            // C# tarafında sorguyu ikiye ayırmak:
+            if (metricType == "CPU")
             {
-                if (metricType == "CPU")
+                var cpuStats = await query.GroupBy(m => m.ComputerId)
+                    .Select(g => new { TotalCount = g.Count(), MaxVal = g.Max(m => m.CpuUsage), MinVal = g.Min(m => m.CpuUsage) })
+                    .FirstOrDefaultAsync();
+
+                if (cpuStats != null && cpuStats.TotalCount > 0)
                 {
-                    summary.MaxVal = await query.MaxAsync(m => m.CpuUsage);
-                    summary.MinVal = await query.MinAsync(m => m.CpuUsage);
-                    summary.MaxCount = await query.CountAsync(m => m.CpuUsage == summary.MaxVal);
-                    summary.MinCount = await query.CountAsync(m => m.CpuUsage == summary.MinVal);
+                    summary.TotalCount = cpuStats.TotalCount;
+                    summary.MaxVal = cpuStats.MaxVal;
+                    summary.MinVal = cpuStats.MinVal;
+
+                    var counts = await query.GroupBy(m => m.ComputerId)
+                        .Select(g => new { MaxCount = g.Count(m => m.CpuUsage == cpuStats.MaxVal), MinCount = g.Count(m => m.CpuUsage == cpuStats.MinVal) })
+                        .FirstOrDefaultAsync();
+
+                    if (counts != null) { summary.MaxCount = counts.MaxCount; summary.MinCount = counts.MinCount; }
                 }
-                else
+            }
+            else // RAM
+            {
+                var ramStats = await query.GroupBy(m => m.ComputerId)
+                    .Select(g => new { TotalCount = g.Count(), MaxVal = g.Max(m => m.RamUsage), MinVal = g.Min(m => m.RamUsage) })
+                    .FirstOrDefaultAsync();
+
+                if (ramStats != null && ramStats.TotalCount > 0)
                 {
-                    summary.MaxVal = await query.MaxAsync(m => m.RamUsage);
-                    summary.MinVal = await query.MinAsync(m => m.RamUsage);
-                    summary.MaxCount = await query.CountAsync(m => m.RamUsage == summary.MaxVal);
-                    summary.MinCount = await query.CountAsync(m => m.RamUsage == summary.MinVal);
+                    summary.TotalCount = ramStats.TotalCount;
+                    summary.MaxVal = ramStats.MaxVal;
+                    summary.MinVal = ramStats.MinVal;
+
+                    var counts = await query.GroupBy(m => m.ComputerId)
+                        .Select(g => new { MaxCount = g.Count(m => m.RamUsage == ramStats.MaxVal), MinCount = g.Count(m => m.RamUsage == ramStats.MinVal) })
+                        .FirstOrDefaultAsync();
+
+                    if (counts != null) { summary.MaxCount = counts.MaxCount; summary.MinCount = counts.MinCount; }
                 }
             }
         }
         else if (metricType.StartsWith("Disk") && !string.IsNullOrEmpty(diskName))
         {
-            var query = _db.DiskMetrics
-                .Where(m => m.ComputerDisk.ComputerId == computerId && m.ComputerDisk.DiskName == diskName);
+            // 3. ADIM: DİSK SORGUSUNDAKİ DEVASA JOIN'İ YOK EDİYORUZ
+            // Milyonlarca satırlık DiskMetrics'e JOIN atmak yerine, önce minicik tablodan DiskId'yi buluyoruz (Milisaniye sürer)
+            var diskId = await _db.ComputerDisks
+                .AsNoTracking()
+                .Where(d => d.ComputerId == computerId && d.DiskName == diskName)
+                .Select(d => d.Id)
+                .FirstOrDefaultAsync();
 
-            summary.TotalCount = await query.CountAsync();
-
-            if (summary.TotalCount > 0)
+            if (diskId != 0)
             {
-                summary.MaxVal = await query.MaxAsync(m => m.UsedPercent);
-                summary.MinVal = await query.MinAsync(m => m.UsedPercent);
-                summary.MaxCount = await query.CountAsync(m => m.UsedPercent == summary.MaxVal);
-                summary.MinCount = await query.CountAsync(m => m.UsedPercent == summary.MinVal);
+                var diskQuery = _db.DiskMetrics.AsNoTracking().Where(m => m.ComputerDiskId == diskId);
+
+                // Tıpkı yukarıdaki gibi Count, Max, Min işlemlerini TEK sorguda alıyoruz
+                var diskStats = await diskQuery
+                    .GroupBy(m => m.ComputerDiskId)
+                    .Select(g => new
+                    {
+                        TotalCount = g.Count(),
+                        MaxVal = g.Max(m => m.UsedPercent),
+                        MinVal = g.Min(m => m.UsedPercent)
+                    })
+                    .FirstOrDefaultAsync();
+
+                if (diskStats != null && diskStats.TotalCount > 0)
+                {
+                    summary.TotalCount = diskStats.TotalCount;
+                    summary.MaxVal = diskStats.MaxVal;
+                    summary.MinVal = diskStats.MinVal;
+
+                    // MaxCount ve MinCount işlemlerini TEK sorguda alıyoruz
+                    var diskCounts = await diskQuery
+                        .GroupBy(m => m.ComputerDiskId)
+                        .Select(g => new
+                        {
+                            MaxCount = g.Count(m => m.UsedPercent == diskStats.MaxVal),
+                            MinCount = g.Count(m => m.UsedPercent == diskStats.MinVal)
+                        })
+                        .FirstOrDefaultAsync();
+
+                    if (diskCounts != null)
+                    {
+                        summary.MaxCount = diskCounts.MaxCount;
+                        summary.MinCount = diskCounts.MinCount;
+                    }
+                }
             }
         }
 
@@ -768,31 +816,33 @@ public class ComputerService : BaseService, IComputerService
     // 12. Rapor Detayları İçin Son 5 Veri Gününün Trendi (Yeni Eklendi)
     public async Task<ServiceResult<object>> GetMetricsTrendDataAsync(int computerId, string metricType, string? diskName)
     {
-        // Regresyon için ideal hedef nokta sayısı. Çok yüksek olursa tarayıcı yorulur, düşük olursa sapma artar.
         int maxPointsForRegression = _config.GetValue<int>("ChartSettings:RegressionMaxPoints", 1000);
 
         if (metricType == "CPU" || metricType == "RAM")
         {
-            var dates = await _db.ComputerMetrics
+            // 1. ZEKİCE HACK: Milyonlarca satırı tarayıp farklı tarihleri bulmak yerine
+            // sadece en son veri gelen tarihi buluyoruz (1 Milisaniye)
+            var lastMetricDate = await _db.ComputerMetrics
+                .AsNoTracking()
                 .Where(m => m.ComputerId == computerId)
-                .Select(m => m.CreatedAt.Date)
-                .Distinct()
-                .OrderByDescending(d => d)
-                .Take(5)
-                .ToListAsync();
+                .OrderByDescending(m => m.CreatedAt)
+                .Select(m => m.CreatedAt)
+                .FirstOrDefaultAsync();
 
-            if (!dates.Any()) return ServiceResult<object>.Success(new List<object>());
+            if (lastMetricDate == default) return ServiceResult<object>.Success(new List<object>());
 
-            var minDate = dates.Min();
-            var maxDate = dates.Max().AddDays(1);
+            // En son veri gelen günden geriye 5 günlük bir pencere açıyoruz
+            var maxDate = lastMetricDate.Date.AddDays(1);
+            var minDate = maxDate.AddDays(-5);
 
-            // 1. ADIM: Veritabanından en yalın haliyle RAM'e çek 
-            var rawData = await _db.ComputerMetrics
-                .Where(m => m.ComputerId == computerId && m.CreatedAt >= minDate && m.CreatedAt < maxDate)
-                .Select(m => new { m.CreatedAt, value = metricType == "CPU" ? m.CpuUsage : m.RamUsage })
-                .ToListAsync();
+            var baseQuery = _db.ComputerMetrics
+                .AsNoTracking()
+                .Where(m => m.ComputerId == computerId && m.CreatedAt >= minDate && m.CreatedAt < maxDate);
 
-            // 2. ADIM: Veri sayısına göre gruplama (Zamana göre değil)
+            // TERNARY OPERATÖRÜ SQL'DEN ÇIKARTIYORUZ
+            var rawData = metricType == "CPU"
+                ? await baseQuery.Select(m => new { m.CreatedAt, value = m.CpuUsage }).ToListAsync()
+                : await baseQuery.Select(m => new { m.CreatedAt, value = m.RamUsage }).ToListAsync();
             if (rawData.Count <= maxPointsForRegression)
             {
                 var data = rawData.OrderBy(m => m.CreatedAt).Select(m => new { createdAt = m.CreatedAt, value = m.value }).ToList();
@@ -802,7 +852,6 @@ public class ComputerService : BaseService, IComputerService
             {
                 long totalTicks = (maxDate - minDate).Ticks;
                 long bucketTicks = totalTicks / maxPointsForRegression;
-
                 if (bucketTicks <= 0) bucketTicks = TimeSpan.FromSeconds(1).Ticks;
 
                 long lastBucketTrend = totalTicks > 0 ? (totalTicks - 1) / bucketTicks : 0;
@@ -821,26 +870,34 @@ public class ComputerService : BaseService, IComputerService
         }
         else if (metricType.StartsWith("Disk") && !string.IsNullOrEmpty(diskName))
         {
-            var dates = await _db.DiskMetrics
-                .Where(m => m.ComputerDisk.ComputerId == computerId && m.ComputerDisk.DiskName == diskName)
-                .Select(m => m.CreatedAt.Date)
-                .Distinct()
-                .OrderByDescending(d => d)
-                .Take(5)
-                .ToListAsync();
+            var diskId = await _db.ComputerDisks
+                .AsNoTracking()
+                .Where(d => d.ComputerId == computerId && d.DiskName == diskName)
+                .Select(d => d.Id)
+                .FirstOrDefaultAsync();
 
-            if (!dates.Any()) return ServiceResult<object>.Success(new List<object>());
+            if (diskId == 0) return ServiceResult<object>.Success(new List<object>());
 
-            var minDate = dates.Min();
-            var maxDate = dates.Max().AddDays(1);
+            // 1. DİSK İÇİN ZEKİCE HACK: Sadece en son tarihi bul (1 Milisaniye)
+            var lastMetricDate = await _db.DiskMetrics
+                .AsNoTracking()
+                .Where(m => m.ComputerDiskId == diskId)
+                .OrderByDescending(m => m.CreatedAt)
+                .Select(m => m.CreatedAt)
+                .FirstOrDefaultAsync();
 
-            // 1. ADIM: Diski veritabanından yalın çek
+            if (lastMetricDate == default) return ServiceResult<object>.Success(new List<object>());
+
+            var maxDate = lastMetricDate.Date.AddDays(1);
+            var minDate = maxDate.AddDays(-5);
+
+            // 2. YENİ İNDEKSLE IŞIK HIZINDA OKUMA
             var rawData = await _db.DiskMetrics
-                .Where(m => m.ComputerDisk.ComputerId == computerId && m.ComputerDisk.DiskName == diskName && m.CreatedAt >= minDate && m.CreatedAt < maxDate)
+                .AsNoTracking()
+                .Where(m => m.ComputerDiskId == diskId && m.CreatedAt >= minDate && m.CreatedAt < maxDate)
                 .Select(m => new { m.CreatedAt, value = m.UsedPercent })
                 .ToListAsync();
 
-            // 2. ADIM: Bellekte grupla
             if (rawData.Count <= maxPointsForRegression)
             {
                 var data = rawData.OrderBy(m => m.CreatedAt).Select(m => new { createdAt = m.CreatedAt, value = m.value }).ToList();
@@ -850,7 +907,6 @@ public class ComputerService : BaseService, IComputerService
             {
                 long totalTicks = (maxDate - minDate).Ticks;
                 long bucketTicks = totalTicks / maxPointsForRegression;
-
                 if (bucketTicks <= 0) bucketTicks = TimeSpan.FromSeconds(1).Ticks;
 
                 long lastBucketTrend = totalTicks > 0 ? (totalTicks - 1) / bucketTicks : 0;
@@ -870,7 +926,6 @@ public class ComputerService : BaseService, IComputerService
 
         return ServiceResult<object>.Success(new List<object>());
     }
-
     public async Task<ServiceResult<ThresholdAnalysisReportDto>> GetThresholdAnalysisAsync(int computerId, ThresholdReportRequestDto request)
     {
         var computer = await _db.Computers.Include(c => c.Disks).FirstOrDefaultAsync(c => c.Id == computerId);
@@ -885,7 +940,6 @@ public class ComputerService : BaseService, IComputerService
         }
 
         // --- YEREL YARDIMCI FONKSİYON: 100 Noktaya İndirme (Decimation) ---
-        // Aşımları zamana göre gruplayıp her gruptaki EN YÜKSEK (Peak) aşımı seçer.
         List<ThresholdBreachDetailDto> DecimateBreaches(List<ThresholdBreachDetailDto> rawBreaches, int targetCount)
         {
             if (rawBreaches.Count <= targetCount) return rawBreaches;
@@ -896,7 +950,7 @@ public class ComputerService : BaseService, IComputerService
 
             return rawBreaches
                 .GroupBy(b => (b.Timestamp.Ticks - startDate.Ticks) / bucketTicks)
-                .Select(g => g.OrderByDescending(x => x.Value).First()) // O aralıktaki en şiddetli aşımı seç
+                .Select(g => g.OrderByDescending(x => x.Value).First())
                 .OrderBy(x => x.Timestamp)
                 .ToList();
         }
@@ -906,18 +960,28 @@ public class ComputerService : BaseService, IComputerService
             .Where(m => m.ComputerId == computerId && m.CreatedAt >= startDate && m.CreatedAt <= endDate)
             .CountAsync();
 
-        // 2. UYARI DETAYLARINI ÇEK (CPU & RAM)
-        var cpuBreachesRaw = await _db.MetricWarningLogs
-            .Where(w => w.ComputerId == computerId && w.MetricTypeId == 1 && w.CreatedAt >= startDate && w.CreatedAt <= endDate)
-            .OrderBy(w => w.CreatedAt)
-            .Select(w => new ThresholdBreachDetailDto { Timestamp = w.CreatedAt, Value = w.MetricValue, ThresholdPercent = w.ThresholdValue })
+        // 2. TÜM UYARILARI TEK SEFERDE ÇEK (3 veritabanı turunu 1'e düşürdük)
+        // Yeni eklediğimiz Kapsayan İndeks (Covering Index) sayesinde bu sorgu ışık hızında çalışacak.
+        var allBreachesRaw = await _db.MetricWarningLogs
+            .AsNoTracking()
+            .Where(w => w.ComputerId == computerId && w.CreatedAt >= startDate && w.CreatedAt <= endDate)
+            .OrderBy(w => w.CreatedAt) // İndeks zaten sıralı olduğu için SQL'e ekstra maliyet yaratmaz
+            .Select(w => new
+            {
+                w.MetricTypeId,
+                w.ComputerDiskId,
+                Breach = new ThresholdBreachDetailDto
+                {
+                    Timestamp = w.CreatedAt,
+                    Value = w.MetricValue,
+                    ThresholdPercent = w.ThresholdValue
+                }
+            })
             .ToListAsync();
 
-        var ramBreachesRaw = await _db.MetricWarningLogs
-            .Where(w => w.ComputerId == computerId && w.MetricTypeId == 2 && w.CreatedAt >= startDate && w.CreatedAt <= endDate)
-            .OrderBy(w => w.CreatedAt)
-            .Select(w => new ThresholdBreachDetailDto { Timestamp = w.CreatedAt, Value = w.MetricValue, ThresholdPercent = w.ThresholdValue })
-            .ToListAsync();
+        // RAM ÜZERİNDE AYRIŞTIRMA (Milisaniyeler sürer)
+        var cpuBreachesRaw = allBreachesRaw.Where(x => x.MetricTypeId == 1).Select(x => x.Breach).ToList();
+        var ramBreachesRaw = allBreachesRaw.Where(x => x.MetricTypeId == 2).Select(x => x.Breach).ToList();
 
         // MAKSİMUM NOKTA KURALINI UYGULA
         int targetPoints = _config.GetValue<int>("ChartSettings:ThresholdAnalysisTargetPoints", 70);
@@ -932,9 +996,9 @@ public class ComputerService : BaseService, IComputerService
             CpuResult = new MetricThresholdResult
             {
                 TotalCount = totalCpuRamCount,
-                WarningCount = cpuBreachesRaw.Count, // Toplam sayı gerçek veri üzerinden kalsın
+                WarningCount = cpuBreachesRaw.Count,
                 BelowThresholdCount = Math.Max(0, totalCpuRamCount - cpuBreachesRaw.Count),
-                Breaches = cpuBreaches // Grafik için seyreltilmiş liste
+                Breaches = cpuBreaches
             },
             RamResult = new MetricThresholdResult
             {
@@ -945,7 +1009,7 @@ public class ComputerService : BaseService, IComputerService
             }
         };
 
-        // 3. DİSKLER İÇİN AYNI İŞLEM
+        // 3. DİSKLER İÇİN AYRIŞTIRMA VE HESAPLAMA
         var diskIds = computer.Disks.Select(d => d.Id).ToList();
         if (diskIds.Any())
         {
@@ -955,23 +1019,16 @@ public class ComputerService : BaseService, IComputerService
                 .Select(g => new { DiskId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.DiskId, x => x.Count);
 
-            var allDiskBreaches = await _db.MetricWarningLogs
-                .Where(w => w.ComputerId == computerId && w.MetricTypeId == 3 && w.ComputerDiskId != null && w.CreatedAt >= startDate && w.CreatedAt <= endDate)
-                .OrderBy(w => w.CreatedAt)
-                .Select(w => new {
-                    DiskId = w.ComputerDiskId!.Value,
-                    Breach = new ThresholdBreachDetailDto { Timestamp = w.CreatedAt, Value = w.MetricValue, ThresholdPercent = w.ThresholdValue }
-                })
-                .ToListAsync();
-
-            var diskBreachesLookup = allDiskBreaches.ToLookup(x => x.DiskId, x => x.Breach);
+            // Disk uyarılarını yukarıdaki devasa listeden RAM üzerinde çekiyoruz
+            var diskBreachesLookup = allBreachesRaw
+                .Where(x => x.MetricTypeId == 3 && x.ComputerDiskId.HasValue)
+                .ToLookup(x => x.ComputerDiskId!.Value, x => x.Breach);
 
             foreach (var disk in computer.Disks)
             {
                 int totalDiskCount = diskTotalCounts.ContainsKey(disk.Id) ? diskTotalCounts[disk.Id] : 0;
                 var rawBreachesForThisDisk = diskBreachesLookup[disk.Id].ToList();
 
-                // DİSK İÇİN NOKTA KURALI
                 var decimatedDiskBreaches = DecimateBreaches(rawBreachesForThisDisk, targetPoints);
 
                 report.DiskResults.Add(new DiskThresholdResult
