@@ -35,7 +35,7 @@ public class ComputerController : ControllerBase
 
     // 1. Cihaz Detayı
     [HttpGet("{id:int}")]
-    [HasPermission(AppPermissions.Computer_Read)]
+    [HasPermission(AppPermissions.None)]
     public async Task<IActionResult> GetComputer(int id)
     {
         var result = await _computerService.GetComputerAsync(id, GetUserId(), IsAdmin());
@@ -52,7 +52,7 @@ public class ComputerController : ControllerBase
 
     // 2. Disk Listesi
     [HttpGet("{computerId:int}/disks")]
-    [HasPermission(AppPermissions.Computer_Read)]
+    [HasPermission(AppPermissions.None)]
     public async Task<IActionResult> GetComputerDisks(int computerId)
     {
         var result = await _computerService.GetComputerDisksAsync(computerId, GetUserId(), IsAdmin());
@@ -130,7 +130,7 @@ public class ComputerController : ControllerBase
 
     // 7. Tüm Cihazları Getir
     [HttpGet]
-    [HasPermission(AppPermissions.Computer_Read, AppPermissions.Computer_Filter)]
+    [HasPermission(AppPermissions.None)]
     public async Task<IActionResult> GetAllComputers()
     {
         var result = await _computerService.GetAllComputersAsync(GetUserId(), IsAdmin());

@@ -738,6 +738,69 @@
 
                 ui.initCorrelationPage();
                 break;
+
+            case 'device-comparison':
+                title.innerText = "Cihaz Karşılaştırma";
+                subtitle.innerText = "Seçilen cihazların performans metriklerini aynı grafik üzerinde karşılaştırın.";
+
+                const compFilterEl = document.getElementById('globalFilters');
+                if (compFilterEl) { compFilterEl.classList.remove('d-flex'); compFilterEl.classList.add('d-none'); }
+
+                content.innerHTML = `
+                <div class="row">
+                    <div class="col-lg-3 mb-4">
+                        <div class="card border-0 shadow-sm" style="background:var(--bg-card);">
+                            <div class="card-body">
+                                <h5 class="fw-bold mb-4" style="color:var(--text-title);"><i class="bi bi-sliders text-success"></i> Analiz Ayarları</h5>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold small text-muted">KARŞILAŞTIRILACAK DEĞER</label>
+                                    <select id="comp-metric-select" class="form-select" onchange="ui.handleComparisonMetricChange(this.value)" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
+                                        <option value="" disabled selected>-- Seçiniz --</option>
+                                        <option value="CPU">CPU Kullanımı (%)</option>
+                                        <option value="RAM">RAM Kullanımı (%)</option>
+                                        <optgroup label="Ortak Diskler" id="comp-disk-optgroup"></optgroup>
+                                    </select>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="form-label fw-bold small text-muted">CİHAZLAR <span id="comp-selected-count" class="badge bg-secondary ms-1">0 Seçili</span></label>
+                                    <div id="comp-computers-container" class="border rounded p-2" style="max-height: 250px; overflow-y: auto; background:var(--bg-input); border-color:var(--border-input) !important;">
+                                        <small class="text-muted">Yükleniyor...</small>
+                                    </div>
+                                </div>
+
+                                <div class="row g-2 mb-4">
+                                    <div class="col-12">
+                                        <label class="form-label fw-bold small text-muted">BAŞLANGIÇ</label>
+                                        <input type="datetime-local" id="comp-start" class="form-control form-control-sm" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label fw-bold small text-muted">BİTİŞ</label>
+                                        <input type="datetime-local" id="comp-end" class="form-control form-control-sm" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
+                                    </div>
+                                </div>
+
+                                <button class="btn btn-success w-100 fw-bold shadow-sm" onclick="ui.generateDeviceComparison()">
+                                    <i class="bi bi-graph-up me-2"></i> Karşılaştır
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-9">
+                        <div id="comp-result-card" class="card border-0 shadow-sm p-3" style="background:var(--bg-card); display:none; height: 550px;">
+                            <canvas id="comparisonCanvas"></canvas>
+                        </div>
+                        <div id="comp-placeholder" class="text-center py-5 mt-5">
+                            <i class="bi bi-arrow-left-right display-1 text-muted opacity-50 mb-3 d-block"></i>
+                            <h4 class="fw-light" style="color: var(--text-title);">Değer ve cihazları seçerek karşılaştırmaya başlayın.</h4>
+                        </div>
+                    </div>
+                </div>`;
+
+                ui.initDeviceComparisonPage();
+                break;
         }
 
     }
@@ -2398,6 +2461,7 @@
 
                 // Zaman Haritası (Milisaniye farkını sıfırlama)
                 const timeMap = {};
+                const maxTimeMap = {};
 
                 if (res.cpuRam) {
                     res.cpuRam.forEach(m => {
@@ -2405,8 +2469,9 @@
                         const ts = new Date(m.createdAt).setSeconds(0, 0);
                         if (!timeMap[ts]) timeMap[ts] = {};
                         // Field isimleri güncellendi: cpuUsage -> cpuAvg, ramUsage -> ramAvg
-                        timeMap[ts]["CPU"] = m.cpuAvg;
-                        timeMap[ts]["RAM"] = m.ramAvg;
+                        timeMap[ts]["CPU"] = { avg: m.cpuAvg, min: m.cpuMin, max: m.cpuMax, minTime: m.cpuMinTime, maxTime: m.cpuMaxTime };
+                        timeMap[ts]["RAM"] = { avg: m.ramAvg, min: m.ramMin, max: m.ramMax, minTime: m.ramMinTime, maxTime: m.ramMaxTime };
+                        maxTimeMap[ts] = Math.max(maxTimeMap[ts] || 0, new Date(m.maxCreatedAt || m.createdAt).getTime());
                     });
                 }
 
@@ -2416,7 +2481,8 @@
                         const ts = new Date(d.createdAt).setSeconds(0, 0);
                         if (!timeMap[ts]) timeMap[ts] = {};
                         // Field ismi güncellendi: usedPercent -> usedAvg
-                        timeMap[ts][`Disk_${d.diskName}`] = d.usedAvg;
+                        timeMap[ts][`Disk_${d.diskName}`] = { avg: d.usedAvg, min: d.usedMin, max: d.usedMax, minTime: d.usedMinTime, maxTime: d.usedMaxTime };
+                        maxTimeMap[ts] = Math.max(maxTimeMap[ts] || 0, new Date(d.maxCreatedAt || d.createdAt).getTime());
                     });
                 }
 
@@ -2424,14 +2490,23 @@
 
                 if (mode === 'line') {
                     // --- ZAMAN SERİSİ (LINE CHART) ---
-                    const labels = sortedKeys.map(ts => new Date(ts).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }));
+                    const trMonths = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+                    const formatTrDate = (d) => {
+                        const pad = n => n.toString().padStart(2, '0');
+                        return `${d.getDate()} ${trMonths[d.getMonth()]} ${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}`;
+                    };
+                    const labels = sortedKeys.map(ts => {
+                        const d1 = new Date(ts);
+                        const d2 = new Date(maxTimeMap[ts] || ts);
+                        return `${formatTrDate(d1)}-${formatTrDate(d2)} arası`;
+                    });
                     const datasets = [];
 
                     checkedMetrics.forEach((cb, index) => {
                         const metricKey = cb.value;
                         const dataArray = sortedKeys.map(ts => {
                             const val = timeMap[ts][metricKey];
-                            return val !== undefined ? val : null;
+                            return val !== undefined ? val.avg : null;
                         });
 
                         let label = metricKey;
@@ -2452,7 +2527,7 @@
                             backgroundColor: color + '20',
                             tension: 0.3,
                             fill: fill,
-                            spanGaps: true
+                            spanGaps: false
                         });
                     });
 
@@ -2462,10 +2537,25 @@
                         options: {
                             responsive: true, maintainAspectRatio: false,
                             interaction: { mode: 'index', intersect: false },
-                            plugins: { legend: { labels: { color: textColor } } },
+                            plugins: { 
+                                legend: { labels: { color: textColor } }
+                            },
                             scales: {
                                 y: { min: 0, max: 100, ticks: { color: textColor }, grid: { color: gridColor } },
-                                x: { ticks: { color: textColor }, grid: { display: false } }
+                                x: { 
+                                    ticks: { 
+                                        color: textColor,
+                                        maxTicksLimit: 12,
+                                        callback: function(val, index) {
+                                            const label = this.getLabelForValue(val);
+                                            if (label && typeof label === 'string') {
+                                                return label.split('-')[0].trim();
+                                            }
+                                            return label;
+                                        }
+                                    }, 
+                                    grid: { display: false } 
+                                }
                             }
                         }
                     });
@@ -2481,10 +2571,13 @@
                     let n = 0;
 
                     sortedKeys.forEach(ts => {
-                        const xVal = timeMap[ts][metric1];
-                        const yVal = timeMap[ts][metric2];
+                        const xValObj = timeMap[ts][metric1];
+                        const yValObj = timeMap[ts][metric2];
 
-                        if (xVal !== undefined && yVal !== undefined) {
+                        if (xValObj !== undefined && yValObj !== undefined) {
+                            const xVal = xValObj.avg;
+                            const yVal = yValObj.avg;
+                            
                             scatterData.push({ x: xVal, y: yVal });
 
                             // Trendline matematiği verileri
@@ -2566,6 +2659,399 @@
                 Swal.fire({ icon: 'error', text: e.message || 'Veri işlenirken hata oluştu.' });
             }
         },
+
+        initDeviceComparisonPage: () => {
+            ui.loadComparisonComputers();
+
+            // Varsayılan tarihleri ayarla (Son 24 saat)
+            const now = new Date();
+            const yesterday = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+            const toISO = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+            document.getElementById('comp-start').value = toISO(yesterday);
+            document.getElementById('comp-end').value = toISO(now);
+        },
+
+        loadComparisonComputers: async () => {
+            const container = document.getElementById('comp-computers-container');
+            if (!container) return;
+            try {
+                const computers = await api.get('/api/Computer');
+                const activeComputers = computers.filter(c => !c.isDeleted);
+                
+                if (activeComputers.length === 0) {
+                    container.innerHTML = '<small class="text-muted">Cihaz bulunamadı.</small>';
+                    return;
+                }
+
+                let html = '';
+                activeComputers.forEach(c => {
+                    html += `
+                                <div class="form-check mb-1">
+                                    <input class="form-check-input comp-computer-check" type="checkbox" value="${c.id}" id="compChk_${c.id}" data-name="${c.displayName || c.machineName}" onchange="ui.handleComparisonComputerChange(this)">
+                                    <label class="form-check-label small" for="compChk_${c.id}" style="color:var(--text-main);">${c.displayName || c.machineName}</label>
+                                </div>`;
+                });
+                container.innerHTML = html;
+            } catch (e) { 
+                container.innerHTML = '<small class="text-danger">Cihazlar yüklenemedi</small>'; 
+            }
+        },
+
+        handleComparisonComputerChange: async (checkbox) => {
+            const checked = document.querySelectorAll('.comp-computer-check:checked');
+            const countEl = document.getElementById('comp-selected-count');
+            if (countEl) countEl.innerText = `${checked.length} Seçili`;
+
+            // Max 6 cihaz kısıtlaması (renk paletinden dolayı mantıklı bir sınır)
+            if (checked.length > 6) {
+                Swal.fire({ icon: 'info', text: 'Karşılaştırma için en fazla 6 cihaz seçebilirsiniz.', timer: 2000, showConfirmButton: false });
+                if (checkbox) checkbox.checked = false;
+                if (countEl) countEl.innerText = `${checked.length - 1} Seçili`;
+                return;
+            }
+
+            ui.loadComparisonDisks();
+        },
+
+        loadComparisonDisks: async () => {
+            const checked = Array.from(document.querySelectorAll('.comp-computer-check:checked'));
+            const optgroup = document.getElementById('comp-disk-optgroup');
+            if (!optgroup) return;
+
+            if (checked.length === 0) {
+                optgroup.innerHTML = '';
+                return;
+            }
+
+            try {
+                // Seçili olan tüm cihazların disklerini al
+                const allDisksPromises = checked.map(c => api.get(`/api/Computer/${c.value}/disks`));
+                const allDisksResults = await Promise.all(allDisksPromises);
+
+                // Ortak diskleri bul (kesişim)
+                if (allDisksResults.length > 0 && allDisksResults[0].length > 0) {
+                    let commonDiskNames = allDisksResults[0].map(d => d.diskName);
+                    
+                    for (let i = 1; i < allDisksResults.length; i++) {
+                        const currentDiskNames = allDisksResults[i].map(d => d.diskName);
+                        commonDiskNames = commonDiskNames.filter(name => currentDiskNames.includes(name));
+                    }
+
+                    let optionsHtml = '';
+                    commonDiskNames.forEach(name => {
+                        optionsHtml += `<option value="Disk_${name}">Ortak Disk: ${name}</option>`;
+                    });
+                    optgroup.innerHTML = optionsHtml;
+                    
+                    // Eğer seçili olan değer artık seçenekler arasında yoksa sıfırla
+                    const metricSelect = document.getElementById('comp-metric-select');
+                    if (metricSelect.value.startsWith('Disk_') && !commonDiskNames.includes(metricSelect.value.replace('Disk_', ''))) {
+                        metricSelect.value = '';
+                    }
+                } else {
+                    optgroup.innerHTML = '';
+                }
+            } catch (e) {
+                console.error("Ortak diskler yüklenirken hata:", e);
+                optgroup.innerHTML = '';
+            }
+        },
+
+        handleComparisonMetricChange: (val) => {
+            // İleride farklı metrik türleri için özelleştirmeler gerekirse eklenebilir
+        },
+
+        generateDeviceComparison: async () => {
+            const checkedComputers = Array.from(document.querySelectorAll('.comp-computer-check:checked'));
+            const start = document.getElementById('comp-start').value;
+            const end = document.getElementById('comp-end').value;
+            const metric = document.getElementById('comp-metric-select').value;
+
+            if (checkedComputers.length < 2) {
+                Swal.fire({ icon: 'warning', text: 'Karşılaştırma için en az 2 cihaz seçmelisiniz.' });
+                return;
+            }
+            if (!metric) {
+                Swal.fire({ icon: 'warning', text: 'Lütfen karşılaştırılacak bir değer seçin.' });
+                return;
+            }
+            if (!start || !end) {
+                Swal.fire({ icon: 'warning', text: 'Lütfen başlangıç ve bitiş tarihlerini seçin.' });
+                return;
+            }
+
+            document.getElementById('comp-placeholder').style.display = 'none';
+            document.getElementById('comp-result-card').style.display = 'block';
+
+            const ctx = document.getElementById('comparisonCanvas').getContext('2d');
+            if (window.myComparisonChart) window.myComparisonChart.destroy();
+
+            // Koyu/Açık tema
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const isDarkMode = currentTheme === 'dark';
+            const textColor = isDarkMode ? '#e2e8f0' : '#334155';
+            const gridColor = isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)';
+
+            const colors = ['#0dcaf0', '#dc3545', '#198754', '#ffc107', '#6f42c1', '#fd7e14'];
+            const datasets = [];
+
+            // Tüm dataları aynı zaman ekseninde birleştirmek için global timeMap ve Set
+            const timeSet = new Set();
+            const deviceDataMap = {}; // { deviceId: { timestamp: value } }
+            const maxTimeMap = {};
+
+            try {
+                // Fetch all data concurrently
+                const promises = checkedComputers.map(c => 
+                    api.get(`/api/Computer/${c.value}/metrics-history?start=${start}&end=${end}`)
+                );
+                
+                Swal.fire({ title: 'Veriler Yükleniyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+                const results = await Promise.all(promises);
+                Swal.close();
+
+                checkedComputers.forEach((c, index) => {
+                    const compId = c.value;
+                    const compName = c.getAttribute('data-name');
+                    const res = results[index];
+                    
+                    deviceDataMap[compId] = { name: compName, values: {} };
+
+                    if (metric === "CPU" || metric === "RAM") {
+                        if (res.cpuRam) {
+                            res.cpuRam.forEach(m => {
+                                if (!m.createdAt) return;
+                                const ts = new Date(m.createdAt).setSeconds(0, 0);
+                                timeSet.add(ts);
+                                deviceDataMap[compId].values[ts] = metric === "CPU" ? 
+                                    { avg: m.cpuAvg, min: m.cpuMin, max: m.cpuMax, minTime: m.cpuMinTime, maxTime: m.cpuMaxTime } : 
+                                    { avg: m.ramAvg, min: m.ramMin, max: m.ramMax, minTime: m.ramMinTime, maxTime: m.ramMaxTime };
+                                maxTimeMap[ts] = Math.max(maxTimeMap[ts] || 0, new Date(m.maxCreatedAt || m.createdAt).getTime());
+                            });
+                        }
+                    } else if (metric.startsWith("Disk_")) {
+                        const targetDiskName = metric.substring(5);
+                        if (res.disks) {
+                            res.disks.forEach(d => {
+                                if (!d.createdAt || d.diskName !== targetDiskName) return;
+                                const ts = new Date(d.createdAt).setSeconds(0, 0);
+                                timeSet.add(ts);
+                                deviceDataMap[compId].values[ts] = { avg: d.usedAvg, min: d.usedMin, max: d.usedMax, minTime: d.usedMinTime, maxTime: d.usedMaxTime };
+                                maxTimeMap[ts] = Math.max(maxTimeMap[ts] || 0, new Date(d.maxCreatedAt || d.createdAt).getTime());
+                            });
+                        }
+                    }
+                });
+
+                const trMonths = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+                const formatTrDate = (d) => {
+                    const pad = n => n.toString().padStart(2, '0');
+                    return `${d.getDate()} ${trMonths[d.getMonth()]} ${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}`;
+                };
+                const sortedKeys = Array.from(timeSet).sort((a, b) => a - b);
+                const labels = sortedKeys.map(ts => {
+                    const d1 = new Date(ts);
+                    const d2 = new Date(maxTimeMap[ts] || ts);
+                    return `${formatTrDate(d1)}-${formatTrDate(d2)} arası`;
+                });
+
+                checkedComputers.forEach((c, index) => {
+                    const compId = c.value;
+                    const compData = deviceDataMap[compId];
+                    const color = colors[index % colors.length];
+                    
+                    const dataArray = sortedKeys.map(ts => {
+                        const val = compData.values[ts];
+                        return val !== undefined ? val.avg : null;
+                    });
+                    
+                    const maxDataArray = sortedKeys.map(ts => {
+                        const val = compData.values[ts];
+                        return val !== undefined ? val.max : null;
+                    });
+
+                    // Average Line
+                    datasets.push({
+                        label: `${compData.name} (Ortalama)`,
+                        data: dataArray,
+                        borderColor: color,
+                        backgroundColor: color + '20',
+                        tension: 0.3,
+                        fill: false,
+                        spanGaps: false,
+                        compId: compId,
+                        isMaxLine: false
+                    });
+
+                    // Max Line
+                    datasets.push({
+                        label: `${compData.name} (Maksimum)`,
+                        data: maxDataArray,
+                        borderColor: color,
+                        borderDash: [5, 5],
+                        borderWidth: 1.5,
+                        tension: 0.3,
+                        fill: false,
+                        spanGaps: false,
+                        pointRadius: 0,
+                        pointHoverRadius: 0,
+                        compId: compId,
+                        isMaxLine: true
+                    });
+                });
+
+                let chartTitle = metric === "CPU" ? "CPU Karşılaştırması (%)" : 
+                                 metric === "RAM" ? "RAM Karşılaştırması (%)" : 
+                                 `Disk ${metric.substring(5)} Karşılaştırması (%)`;
+
+                const offlineBandPlugin = {
+                    id: 'offlineBand',
+                    beforeDraw: (chart) => {
+                        const { ctx, chartArea: { top, bottom, left, right }, scales: { x } } = chart;
+                        const datasets = chart.data.datasets.filter(d => !d.isMaxLine);
+                        if (datasets.length === 0) return;
+                        const labelsCount = chart.data.labels.length;
+                        
+                        let offlineStart = null;
+                        ctx.save();
+                        
+                        for (let i = 0; i < labelsCount; i++) {
+                            let allNull = true;
+                            for (let d = 0; d < datasets.length; d++) {
+                                if (datasets[d].data[i] !== null && datasets[d].data[i] !== undefined) {
+                                    allNull = false;
+                                    break;
+                                }
+                            }
+                            
+                            if (allNull) {
+                                if (offlineStart === null) offlineStart = i;
+                            } else {
+                                if (offlineStart !== null) {
+                                    const step = labelsCount > 1 ? (x.getPixelForValue(1) - x.getPixelForValue(0)) : 0;
+                                    let startX = x.getPixelForValue(offlineStart) - step / 2;
+                                    let endX = x.getPixelForValue(i - 1) + step / 2;
+                                    
+                                    if (offlineStart === 0) startX = left;
+                                    
+                                    ctx.fillStyle = 'rgba(220, 53, 69, 0.1)';
+                                    ctx.fillRect(startX, top, endX - startX, bottom - top);
+                                    
+                                    ctx.strokeStyle = 'rgba(220, 53, 69, 0.3)';
+                                    ctx.lineWidth = 1;
+                                    ctx.setLineDash([5, 5]);
+                                    ctx.beginPath();
+                                    ctx.moveTo(startX, top); ctx.lineTo(startX, bottom);
+                                    ctx.moveTo(endX, top); ctx.lineTo(endX, bottom);
+                                    ctx.stroke();
+                                    
+                                    if (endX - startX > 60) {
+                                        ctx.fillStyle = 'rgba(220, 53, 69, 0.6)';
+                                        ctx.font = '11px Arial';
+                                        ctx.textAlign = 'center';
+                                        ctx.fillText('Çevrimdışı', startX + (endX - startX) / 2, top + (bottom - top) / 2);
+                                    }
+                                    offlineStart = null;
+                                }
+                            }
+                        }
+                        
+                        if (offlineStart !== null) {
+                            const step = labelsCount > 1 ? (x.getPixelForValue(1) - x.getPixelForValue(0)) : 0;
+                            let startX = x.getPixelForValue(offlineStart) - step / 2;
+                            if (offlineStart === 0) startX = left;
+                            let endX = right;
+                            
+                            ctx.fillStyle = 'rgba(220, 53, 69, 0.1)';
+                            ctx.fillRect(startX, top, endX - startX, bottom - top);
+                            
+                            ctx.strokeStyle = 'rgba(220, 53, 69, 0.3)';
+                            ctx.lineWidth = 1;
+                            ctx.setLineDash([5, 5]);
+                            ctx.beginPath();
+                            ctx.moveTo(startX, top); ctx.lineTo(startX, bottom);
+                            ctx.stroke();
+                            
+                            if (endX - startX > 60) {
+                                ctx.fillStyle = 'rgba(220, 53, 69, 0.6)';
+                                ctx.font = '11px Arial';
+                                ctx.textAlign = 'center';
+                                ctx.fillText('Çevrimdışı', startX + (endX - startX) / 2, top + (bottom - top) / 2);
+                            }
+                        }
+                        ctx.restore();
+                    }
+                };
+
+                window.myComparisonChart = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels, datasets },
+                    plugins: [offlineBandPlugin],
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: { 
+                            legend: { labels: { color: textColor } },
+                            title: { display: true, text: chartTitle, color: textColor },
+                            tooltip: {
+                                callbacks: {
+                                    title: function(context) { return context && context.length > 0 ? context[0].label : ''; },
+                                    label: function(context) {
+                                        const dataset = context.dataset;
+                                        const ts = sortedKeys[context.dataIndex];
+                                        const compData = deviceDataMap[dataset.compId];
+                                        const valObj = compData.values[ts];
+                                        
+                                        if (!valObj) return `${compData.name}: Veri Yok`;
+                                        
+                                        if (dataset.isMaxLine) {
+                                            const ortalamaIndex = context.datasetIndex - 1;
+                                            if (context.chart.isDatasetVisible(ortalamaIndex)) {
+                                                return null; // Ortalama aktifse bilgiyi zaten o veriyor, tekrar yazdırma
+                                            } else {
+                                                return [
+                                                    `${compData.name}`,
+                                                    `Maksimum Değer: %${valObj.max.toFixed(2)} (${formatTrDate(new Date(valObj.maxTime))})`
+                                                ];
+                                            }
+                                        }
+
+                                        return [
+                                            `${compData.name}`,
+                                            `Ortalama Değer %${valObj.avg.toFixed(2)}`,
+                                            `Maksimum Değer: %${valObj.max.toFixed(2)} (${formatTrDate(new Date(valObj.maxTime))})`,
+                                            `Minimum Değer: %${valObj.min.toFixed(2)} (${formatTrDate(new Date(valObj.minTime))})`
+                                        ];
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: { min: 0, max: 100, ticks: { color: textColor }, grid: { color: gridColor } },
+                            x: { 
+                                ticks: { 
+                                    color: textColor,
+                                    maxTicksLimit: 12,
+                                    callback: function(val, index) {
+                                        const label = this.getLabelForValue(val);
+                                        if (label && typeof label === 'string') {
+                                            return label.split('-')[0].trim();
+                                        }
+                                        return label;
+                                    }
+                                }, 
+                                grid: { display: false } 
+                            }
+                        }
+                    }
+                });
+
+            } catch (e) {
+                Swal.close();
+                Swal.fire({ icon: 'error', text: e.message || 'Veriler alınırken hata oluştu.' });
+            }
+        },
+
         filterHeatmap: (cat) => {
             if (!window.activeHeatmapFilters) window.activeHeatmapFilters = [];
 
