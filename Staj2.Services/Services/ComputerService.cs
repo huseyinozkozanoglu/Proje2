@@ -1044,4 +1044,191 @@ public class ComputerService : BaseService, IComputerService
 
         return ServiceResult<ThresholdAnalysisReportDto>.Success(report);
     }
+
+    public async Task<ServiceResult<object>> GetLogManagementDataAsync(int computerId, string start, string end, int userId, bool isAdmin)
+    {
+        if (!await CheckComputerAccessAsync(computerId, userId, isAdmin))
+            return ServiceResult<object>.Failure("Bu cihaza erişim yetkiniz bulunmamaktadır.");
+
+        if (!DateTime.TryParse(start, out DateTime startTime) || !DateTime.TryParse(end, out DateTime endTime))
+            return ServiceResult<object>.Failure("Geçersiz tarih formatı.");
+
+        // 1. Cihaz ve Disk Bilgilerini Al (Güncel Eşikler İçin)
+        var computer = await _db.Computers.Include(c => c.Disks).AsNoTracking().FirstOrDefaultAsync(c => c.Id == computerId);
+        if (computer == null) return ServiceResult<object>.Failure("Cihaz bulunamadı.");
+
+        // 2. Ham Metrikleri ve Uyarı Loglarını Çek (Kullanıcı Talebiyle Sınırları Kaldırıyoruz)
+        var cpuRamMetrics = await _db.ComputerMetrics
+            .AsNoTracking()
+            .Where(m => m.ComputerId == computerId && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+            .OrderByDescending(m => m.CreatedAt)
+            .ToListAsync();
+
+        var diskMetrics = await _db.DiskMetrics
+            .AsNoTracking()
+            .Where(m => m.ComputerDisk.ComputerId == computerId && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+            .OrderByDescending(m => m.CreatedAt)
+            .ToListAsync();
+
+        // --- YENİ: Histogramda Info'ların boş çıkmaması için tüm aralıktaki metrik sayılarını özetleyelim ---
+        // Range büyükse (örn > 1 ay) günlük, küçükse saatlik bazda sayı alıyoruz
+        var totalDays = (endTime - startTime).TotalDays;
+        var infoCounts = new List<dynamic>();
+        
+        if (totalDays > 3)
+        {
+            var summary = await _db.ComputerMetrics
+                .Where(m => m.ComputerId == computerId && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+                .GroupBy(m => new { m.CreatedAt.Year, m.CreatedAt.Month, m.CreatedAt.Day, m.CreatedAt.Hour })
+                .Select(g => new { Timestamp = new DateTime(g.Key.Year, g.Key.Month, g.Key.Day, g.Key.Hour, 0, 0), Count = g.Count() })
+                .ToListAsync();
+            infoCounts = summary.Select(s => (dynamic)s).ToList();
+        }
+        else
+        {
+             var summary = await _db.ComputerMetrics
+                .Where(m => m.ComputerId == computerId && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+                .GroupBy(m => new { m.CreatedAt.Year, m.CreatedAt.Month, m.CreatedAt.Day, m.CreatedAt.Hour, m.CreatedAt.Minute })
+                .Select(g => new { Timestamp = new DateTime(g.Key.Year, g.Key.Month, g.Key.Day, g.Key.Hour, g.Key.Minute, 0), Count = g.Count() })
+                .ToListAsync();
+             infoCounts = summary.Select(s => (dynamic)s).ToList();
+        }
+
+
+        // Uyarı logları genellikle daha azdır, bunları tüm aralık için çekebiliriz
+        var warningLogs = await _db.MetricWarningLogs
+            .AsNoTracking()
+            .Where(w => w.ComputerId == computerId && w.CreatedAt >= startTime && w.CreatedAt <= endTime)
+            .ToListAsync();
+
+        // Performans için Ticks bazlı (Saniye hassasiyetinde) bir lookup oluşturuyoruz
+        // Key: MetricTypeId_DiskId_TotalSeconds
+        var warningLookup = warningLogs
+            .GroupBy(w => $"{w.MetricTypeId}_{w.ComputerDiskId}_{(long)(w.CreatedAt.Ticks / 10000000)}")
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var allLogs = new List<LogEntryDto>(cpuRamMetrics.Count * 2 + diskMetrics.Count);
+
+        // 3. CPU & RAM Loglarını Oluştur (Optimize Döngü)
+        foreach (var m in cpuRamMetrics)
+        {
+            long ts = m.CreatedAt.Ticks / 10000000;
+            
+            // CPU
+            if (warningLookup.TryGetValue($"1__{ts}", out var cpuWarn))
+            {
+                allLogs.Add(new LogEntryDto {
+                    Timestamp = m.CreatedAt, Level = cpuWarn.MetricValue >= 95 ? "Critical" : "Warning",
+                    Metric = "CPU", Value = Math.Round((double)m.CpuUsage, 1), Limit = cpuWarn.ThresholdValue,
+                    Message = $"CPU kullanımı %{m.CpuUsage:F1} seviyesine ulaştı. (Sınır: %{cpuWarn.ThresholdValue})"
+                });
+            }
+            else
+            {
+                allLogs.Add(new LogEntryDto {
+                    Timestamp = m.CreatedAt, Level = "Info", Metric = "CPU", Value = Math.Round((double)m.CpuUsage, 1),
+                    Limit = computer.CpuThreshold ?? 85, Message = $"CPU kullanımı %{m.CpuUsage:F1} seviyesinde."
+                });
+            }
+
+            // RAM
+            if (warningLookup.TryGetValue($"2__{ts}", out var ramWarn))
+            {
+                allLogs.Add(new LogEntryDto {
+                    Timestamp = m.CreatedAt, Level = ramWarn.MetricValue >= 95 ? "Critical" : "Warning",
+                    Metric = "RAM", Value = Math.Round((double)m.RamUsage, 1), Limit = ramWarn.ThresholdValue,
+                    Message = $"RAM kullanımı %{m.RamUsage:F1} seviyesine ulaştı. (Sınır: %{ramWarn.ThresholdValue})"
+                });
+            }
+            else
+            {
+                allLogs.Add(new LogEntryDto {
+                    Timestamp = m.CreatedAt, Level = "Info", Metric = "RAM", Value = Math.Round((double)m.RamUsage, 1),
+                    Limit = computer.RamThreshold ?? 85, Message = $"RAM kullanımı %{m.RamUsage:F1} seviyesinde."
+                });
+            }
+        }
+
+        // 4. Disk Loglarını Oluştur
+        var diskDict = computer.Disks.ToDictionary(d => d.Id);
+        foreach (var dm in diskMetrics)
+        {
+            long ts = dm.CreatedAt.Ticks / 10000000;
+            string key = $"3_{dm.ComputerDiskId}_{ts}";
+            
+            if (warningLookup.TryGetValue(key, out var dWarn))
+            {
+                allLogs.Add(new LogEntryDto {
+                    Timestamp = dm.CreatedAt, Level = dWarn.MetricValue >= 95 ? "Critical" : "Warning",
+                    Metric = $"Disk ({diskDict.GetValueOrDefault(dm.ComputerDiskId)?.DiskName ?? "Bilinmeyen"})",
+                    Value = Math.Round(dm.UsedPercent, 1), Limit = dWarn.ThresholdValue,
+                    Message = $"Disk doluluk oranı %{dm.UsedPercent:F1} oldu. (Sınır: %{dWarn.ThresholdValue})"
+                });
+            }
+            else
+            {
+                var dInfo = diskDict.GetValueOrDefault(dm.ComputerDiskId);
+                allLogs.Add(new LogEntryDto {
+                    Timestamp = dm.CreatedAt, Level = "Info",
+                    Metric = $"Disk ({dInfo?.DiskName ?? "Bilinmeyen"})",
+                    Value = Math.Round(dm.UsedPercent, 1), Limit = dInfo?.ThresholdPercent ?? 90,
+                    Message = $"Disk doluluk oranı %{dm.UsedPercent:F1} seviyesinde."
+                });
+            }
+        }
+
+        // 5. Histogram Verilerini Hesapla
+        var totalMinutes = (endTime - startTime).TotalMinutes;
+        int bucketCount = 60; 
+        double minutesPerBucket = totalMinutes / bucketCount;
+        if (minutesPerBucket < 1) minutesPerBucket = 1;
+
+        var histogramDict = new Dictionary<string, HistogramBucketDto>();
+
+        // Boş bucket'ları oluştur
+        for (int i = 0; i < bucketCount; i++)
+        {
+            var tsDate = startTime.AddMinutes(i * minutesPerBucket);
+            var tsStr = tsDate.ToString("yyyy-MM-ddTHH:mm:ss");
+            histogramDict[tsStr] = new HistogramBucketDto { Timestamp = tsStr };
+        }
+
+        // Info sayılarını (Tüm aralıktan gelen özetten) yerleştir
+        foreach (var ic in infoCounts)
+        {
+            var mins = (ic.Timestamp - startTime).TotalMinutes;
+            var bucketIndex = (int)(mins / minutesPerBucket);
+            if (bucketIndex >= 0 && bucketIndex < bucketCount)
+            {
+                var ts = startTime.AddMinutes(bucketIndex * minutesPerBucket).ToString("yyyy-MM-ddTHH:mm:ss");
+                // Her ComputerMetric 2 log (CPU, RAM) ürettiği için x2 yapıyoruz
+                histogramDict[ts].InfoCount += (int)ic.Count * 2;
+            }
+        }
+
+        // Uyarıları yerleştir (Warning logs zaten tüm aralık için çekildi)
+        foreach (var w in warningLogs)
+        {
+            var mins = (w.CreatedAt - startTime).TotalMinutes;
+            var bucketIndex = (int)(mins / minutesPerBucket);
+            if (bucketIndex >= 0 && bucketIndex < bucketCount)
+            {
+                var ts = startTime.AddMinutes(bucketIndex * minutesPerBucket).ToString("yyyy-MM-ddTHH:mm:ss");
+                if (w.MetricValue >= 95) histogramDict[ts].CriticalCount++;
+                else histogramDict[ts].WarningCount++;
+                
+                // Uyarı olan yerde Info sayısını düşür (çünkü uyarı bir logdur)
+                if (histogramDict[ts].InfoCount > 0) histogramDict[ts].InfoCount--;
+            }
+        }
+
+        // 6. Sonuçları Dön
+        var result = new LogManagementResponseDto
+        {
+            Logs = allLogs.OrderByDescending(l => l.Timestamp).ToList(), 
+            Histogram = histogramDict.Values.OrderBy(h => h.Timestamp).ToList()
+        };
+
+        return ServiceResult<object>.Success(result);
+    }
 }

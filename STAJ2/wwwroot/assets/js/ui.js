@@ -356,6 +356,111 @@
                 // Sayfa yüklendiğinde Cihazları dropdown'a dolduracak fonksiyonu çağırıyoruz
                 if (window.ui.loadHistoryComputers) window.ui.loadHistoryComputers();
                 break;
+
+            case 'log-management':
+                title.innerText = "Log Yönetimi";
+                subtitle.innerText = "Sistemdeki tüm metrik akışını ve eşik aşımlarını Datadog stiliyle izleyin.";
+
+                const logFilterEl = document.getElementById('globalFilters');
+                if (logFilterEl) { logFilterEl.classList.remove('d-flex'); logFilterEl.classList.add('d-none'); }
+
+                content.innerHTML = `
+                <div class="row h-100">
+                    <div class="col-lg-3 border-end border-secondary pe-lg-4 mb-4" style="border-color: var(--border-color) !important;">
+                        <div class="card border-0 shadow-sm" style="background:var(--bg-card); position: sticky; top: 20px;">
+                            <div class="card-body">
+                                <h5 class="fw-bold mb-4" style="color:var(--text-title);"><i class="bi bi-sliders"></i> Kontrol Paneli</h5>
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold small mb-1" style="color:var(--text-muted);">CİHAZ SEÇİMİ</label>
+                                    <select id="logPageComputerSelect" class="form-select" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
+                                        <option value="">Cihaz seçin...</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold small mb-1" style="color:var(--text-muted);">BAŞLANGIÇ ZAMANI</label>
+                                    <input type="datetime-local" id="logStart" class="form-control" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold small mb-1" style="color:var(--text-muted);">BİTİŞ ZAMANI</label>
+                                    <input type="datetime-local" id="logEnd" class="form-control" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
+                                </div>
+                                <button class="btn btn-primary w-100 fw-bold shadow-sm mb-4" onclick="ui.fetchLogManagementData()">
+                                    <i class="bi bi-search me-2"></i> Getir ve Çiz
+                                </button>
+                                <hr>
+                                <h6 class="fw-bold small mb-3" style="color:var(--text-muted);"><i class="bi bi-funnel"></i> METRİK FİLTRELERİ</h6>
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input" type="checkbox" id="filterCpu" checked onchange="ui.applyLocalLogFilters()">
+                                    <label class="form-check-label small" for="filterCpu">CPU Logları</label>
+                                </div>
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input" type="checkbox" id="filterRam" checked onchange="ui.applyLocalLogFilters()">
+                                    <label class="form-check-label small" for="filterRam">RAM Logları</label>
+                                </div>
+                                <div class="form-check form-switch mb-4">
+                                    <input class="form-check-input" type="checkbox" id="filterDisk" checked onchange="ui.applyLocalLogFilters()">
+                                    <label class="form-check-label small" for="filterDisk">Disk Logları</label>
+                                </div>
+                                <h6 class="fw-bold small mb-3" style="color:var(--text-muted);"><i class="bi bi-exclamation-triangle"></i> SEVİYE FİLTRESİ</h6>
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input" type="checkbox" id="filterCritical" checked onchange="ui.applyLocalLogFilters()">
+                                    <label class="form-check-label small text-danger" for="filterCritical">Critical (Kritik Aşım)</label>
+                                </div>
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input" type="checkbox" id="filterWarning" checked onchange="ui.applyLocalLogFilters()">
+                                    <label class="form-check-label small text-warning" for="filterWarning">Warning (Uyarı Seviyesi)</label>
+                                </div>
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input" type="checkbox" id="filterInfo" checked onchange="ui.applyLocalLogFilters()">
+                                    <label class="form-check-label small text-success" for="filterInfo">Info (Normal)</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-9">
+                        <div class="card border-0 mb-4 shadow-sm" style="background:var(--bg-card);">
+                            <div class="card-header border-bottom border-secondary bg-transparent py-2">
+                                <h6 class="mb-0 small fw-bold text-muted"><i class="bi bi-bar-chart-steps me-1"></i> Log Dağılımı (Zaman Çizelgesi)</h6>
+                            </div>
+                            <div class="card-body p-2" style="height: 180px;">
+                                <canvas id="logHistogramCanvas"></canvas>
+                            </div>
+                        </div>
+                        <div class="card border-0 shadow-sm" style="background:var(--bg-card);">
+                            <div class="card-header border-bottom border-secondary bg-transparent py-3 d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0 small"><i class="bi bi-list-task"></i> Log Akışı</h5>
+                                <span id="logCountBadge" class="badge bg-secondary">0 Olay</span>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="p-3 border-bottom border-secondary bg-transparent">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text bg-transparent border-secondary text-muted"><i class="bi bi-search"></i></span>
+                                        <input type="text" id="logSearchInput" class="form-control bg-transparent border-secondary text-white" placeholder="Mesajlarda veya metriklerde ara..." onkeyup="ui.debounceFilter()">
+                                    </div>
+                                </div>
+                                <div id="logTableContainer" class="table-responsive" style="max-height: 500px; overflow-y: auto;" onscroll="ui.handleLogScroll()">
+                                    <table class="table table-dark table-hover mb-0 small">
+                                        <thead class="sticky-top" style="background: #1e293b; z-index: 1;">
+                                            <tr style="color:var(--text-muted); border-bottom: 1px solid var(--border-color);">
+                                                <th style="width: 150px;">Zaman Damgası</th>
+                                                <th style="width: 100px;">Seviye</th>
+                                                <th style="width: 120px;">Metrik</th>
+                                                <th style="width: 80px;">Değer</th>
+                                                <th>Detay / Mesaj</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="logTableBody">
+                                            <tr><td colspan="5" class="text-center py-5 text-muted">Henüz veri getirilmedi. Lütfen cihaz ve tarih seçip "Getir ve Çiz" butonuna basın.</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+                ui.initLogManagementPage();
+                break;
             case 'reports':
                 title.innerText = "Performans Raporları";
                 subtitle.innerText = "Cihazların CPU ve RAM ortalamalarına göre detaylı analizi.";
@@ -919,6 +1024,10 @@
 
     // --- Fonksiyonları Dışarı Aç (Window.UI) ---
     window.ui = {
+        allLogs: [],
+        filteredLogs: [],
+        logRenderIndex: 0,
+        filterTimeout: null,
         show, hide, setText, backOrHome,
         renderSidebar, switchView, toggleTheme,
 
@@ -3050,6 +3159,249 @@
                 Swal.close();
                 Swal.fire({ icon: 'error', text: e.message || 'Veriler alınırken hata oluştu.' });
             }
+        },
+
+        initLogManagementPage: async () => {
+            const select = document.getElementById('logPageComputerSelect');
+            if (!select) return;
+
+            try {
+                const computers = await api.get('/api/Computer');
+                select.innerHTML = '<option value="">Cihaz seçin...</option>';
+                computers.filter(c => !c.isDeleted).forEach(c => {
+                    select.innerHTML += `<option value="${c.id}">${c.displayName || c.machineName}</option>`;
+                });
+            } catch (e) {
+                select.innerHTML = '<option value="">Yükleme hatası!</option>';
+            }
+
+            // Varsayılan tarihleri ayarla (Son 24 saat)
+            const now = new Date();
+            const yesterday = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+            const toISO = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+            document.getElementById('logStart').value = toISO(yesterday);
+            document.getElementById('logEnd').value = toISO(now);
+        },
+
+        fetchLogManagementData: async () => {
+            const compId = document.getElementById('logPageComputerSelect').value;
+            const start = document.getElementById('logStart').value;
+            const end = document.getElementById('logEnd').value;
+
+            if (!compId || !start || !end) {
+                Swal.fire({ icon: 'warning', text: 'Lütfen cihaz ve tarih aralığı seçin.' });
+                return;
+            }
+
+            Swal.fire({ title: 'Loglar Hazırlanıyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+
+            try {
+                const res = await api.get(`/api/Computer/${compId}/logs?start=${start}&end=${end}`);
+                
+                // PERFORMANS: Filtreleme sırasında donmayı önlemek için veriyi önceden işle (Pre-process)
+                ui.allLogs = (res.logs || []).map(l => {
+                    const ts = new Date(l.timestamp);
+                    const timeStr = ts.toLocaleDateString('tr-TR') + ' ' + ts.toLocaleTimeString('tr-TR');
+                    return {
+                        ...l,
+                        _searchBuffer: (l.message + ' ' + l.metric + ' ' + timeStr).toLowerCase(),
+                        _timeStr: timeStr
+                    };
+                });
+                
+                ui.renderLogHistogram(res.histogram || []);
+                ui.applyLocalLogFilters();
+                
+                Swal.close();
+            } catch (e) {
+                Swal.close();
+                Swal.fire({ icon: 'error', text: e.message || 'Veri çekilirken hata oluştu.' });
+            }
+        },
+
+        renderLogHistogram: (data) => {
+            const ctx = document.getElementById('logHistogramCanvas').getContext('2d');
+            if (window.logHistogramChart) window.logHistogramChart.destroy();
+
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            const textColor = isDark ? '#94a3b8' : '#64748b';
+
+            window.logHistogramChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(d => {
+                        const date = new Date(d.timestamp);
+                        return date.getHours().toString().padStart(2, '0') + ':' + date.getMinutes().toString().padStart(2, '0');
+                    }),
+                    datasets: [
+                        { 
+                            label: 'Critical', 
+                            data: data.map(d => d.criticalCount > 0 ? d.criticalCount : null), 
+                            backgroundColor: '#ef4444', 
+                            stack: 'stack0', 
+                            minBarLength: 5 
+                        },
+                        { 
+                            label: 'Warning', 
+                            data: data.map(d => d.warningCount > 0 ? d.warningCount : null), 
+                            backgroundColor: '#f59e0b', 
+                            stack: 'stack0', 
+                            minBarLength: 5 
+                        },
+                        { 
+                            label: 'Info', 
+                            data: data.map(d => d.infoCount > 0 ? d.infoCount : null), 
+                            backgroundColor: '#10b981', 
+                            stack: 'stack0', 
+                            minBarLength: 0 
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: { 
+                        legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 10, color: textColor, font: { size: 10 } } },
+                        tooltip: {
+                            filter: (item) => {
+                                const d = data[item.dataIndex];
+                                return (d.criticalCount > 0 || d.warningCount > 0 || d.infoCount > 0);
+                            },
+                            callbacks: {
+                                title: (items) => {
+                                    const d = data[items[0].dataIndex];
+                                    const dateStart = new Date(d.timestamp);
+                                    
+                                    // Bitiş zamanını hesapla (Bir sonraki veriden veya tahminle)
+                                    let dateEnd;
+                                    if (items[0].dataIndex < data.length - 1) {
+                                        dateEnd = new Date(data[items[0].dataIndex + 1].timestamp);
+                                    } else if (data.length > 1) {
+                                        const diff = new Date(data[1].timestamp).getTime() - new Date(data[0].timestamp).getTime();
+                                        dateEnd = new Date(dateStart.getTime() + diff);
+                                    } else {
+                                        dateEnd = new Date(dateStart.getTime() + 60000); // Varsayılan 1 dk
+                                    }
+
+                                    const fmtFull = (dt) => dt.toLocaleDateString('tr-TR') + ' ' + dt.toLocaleTimeString('tr-TR', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                                    const fmtTime = (dt) => dt.toLocaleTimeString('tr-TR', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                                    
+                                    const isSameDay = dateStart.toDateString() === dateEnd.toDateString();
+                                    
+                                    if (isSameDay) {
+                                        return `${fmtFull(dateStart)} - ${fmtTime(dateEnd)}`;
+                                    } else {
+                                        return `${fmtFull(dateStart)} - ${fmtFull(dateEnd)}`;
+                                    }
+                                },
+                                label: (item) => {
+                                    const val = item.raw === null ? 0 : item.raw;
+                                    return `${item.dataset.label}: ${val} adet`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { stacked: true, grid: { display: false }, ticks: { color: textColor, font: { size: 9 }, maxTicksLimit: 20 } },
+                        y: { stacked: true, grid: { color: isDark ? '#334155' : '#e2e8f0' }, ticks: { color: textColor, font: { size: 9 } } }
+                    }
+                }
+            });
+        },
+
+        debounceFilter: () => {
+            clearTimeout(ui.filterTimeout);
+            ui.filterTimeout = setTimeout(() => {
+                ui.applyLocalLogFilters();
+            }, 300); // 300ms bekle (yazma bitince çalışır)
+        },
+
+        applyLocalLogFilters: () => {
+            const searchTerm = document.getElementById('logSearchInput').value.toLowerCase();
+            const filterCpu = document.getElementById('filterCpu').checked;
+            const filterRam = document.getElementById('filterRam').checked;
+            const filterDisk = document.getElementById('filterDisk').checked;
+            const filterCritical = document.getElementById('filterCritical').checked;
+            const filterWarning = document.getElementById('filterWarning').checked;
+            const filterInfo = document.getElementById('filterInfo').checked;
+
+            const filtered = ui.allLogs.filter(l => {
+                if (l.metric === "CPU" && !filterCpu) return false;
+                if (l.metric === "RAM" && !filterRam) return false;
+                if (l.metric.startsWith("Disk") && !filterDisk) return false;
+
+                if (l.level === "Critical" && !filterCritical) return false;
+                if (l.level === "Warning" && !filterWarning) return false;
+                if (l.level === "Info" && !filterInfo) return false;
+
+                if (searchTerm && !l._searchBuffer.includes(searchTerm)) return false;
+
+                return true;
+            });
+
+            ui.filteredLogs = filtered;
+            ui.logRenderIndex = 0;
+            ui.renderLogFlow();
+        },
+
+        handleLogScroll: () => {
+            const container = document.getElementById('logTableContainer');
+            if (container.scrollHeight - container.scrollTop <= container.clientHeight + 100) {
+                // Sona yaklaştı, yeni paket yükle
+                ui.renderLogFlow(true);
+            }
+        },
+
+        renderLogFlow: (isAppend = false) => {
+            const tbody = document.getElementById('logTableBody');
+            const badge = document.getElementById('logCountBadge');
+            if (!tbody) return;
+
+            const logs = ui.filteredLogs;
+            badge.innerText = `${logs.length} Olay`;
+            
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-muted">Arama kriterlerine uygun sonuç bulunamadı.</td></tr>';
+                return;
+            }
+
+            if (!isAppend) {
+                tbody.innerHTML = '';
+                ui.logRenderIndex = 0;
+            }
+
+            const CHUNK_SIZE = 500;
+            const start = ui.logRenderIndex;
+            const end = Math.min(start + CHUNK_SIZE, logs.length);
+            
+            if (start >= logs.length) return;
+
+            let html = '';
+            for (let i = start; i < end; i++) {
+                const l = logs[i];
+                let levelBadge = '';
+                if (l.level === 'Critical') levelBadge = '<span class="badge bg-danger">Critical</span>';
+                else if (l.level === 'Warning') levelBadge = '<span class="badge bg-warning text-dark">Warning</span>';
+                else levelBadge = '<span class="badge bg-success">Info</span>';
+
+                let metricIcon = '';
+                if (l.metric === 'CPU') metricIcon = '<i class="bi bi-cpu text-info"></i>';
+                else if (l.metric === 'RAM') metricIcon = '<i class="bi bi-memory text-warning"></i>';
+                else metricIcon = '<i class="bi bi-hdd text-success"></i>';
+
+                html += `
+                    <tr>
+                        <td class="text-muted">${l._timeStr}</td>
+                        <td>${levelBadge}</td>
+                        <td><div class="d-flex align-items-center gap-2">${metricIcon} ${l.metric}</div></td>
+                        <td class="fw-bold">${l.value}%</td>
+                        <td class="small">${l.message}</td>
+                    </tr>
+                `;
+            }
+
+            tbody.insertAdjacentHTML('beforeend', html);
+            ui.logRenderIndex = end;
         },
 
         filterHeatmap: (cat) => {

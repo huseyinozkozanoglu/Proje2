@@ -197,4 +197,13 @@ public class ComputerController : ControllerBase
 
         return Ok(result.Data);
     }
+
+    [HttpGet("{id:int}/logs")]
+    [HasPermission(AppPermissions.None)]
+    public async Task<IActionResult> GetLogs(int id, [FromQuery] string start, [FromQuery] string end)
+    {
+        var result = await _computerService.GetLogManagementDataAsync(id, start, end, GetUserId(), IsAdmin());
+        if (!result.IsSuccess) return BadRequest(new { message = result.Message });
+        return Ok(result.Data);
+    }
 }
