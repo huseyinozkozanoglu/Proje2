@@ -815,9 +815,16 @@ function createBandChart(canvasId, labelText, labels, avgData, minData, maxData,
                     data: isDrillDown ? maxData.map((v, i) => ({ x: i, y: v })) : maxData,
                     borderColor: 'transparent',
                     backgroundColor: 'transparent',
-                    pointRadius: 0,
+                    pointRadius: (ctx) => {
+                        const i = ctx.dataIndex;
+                        const data = ctx.dataset.data;
+                        const getVal = (v) => (v !== null && typeof v === 'object' ? v.y : v);
+                        const prev = i > 0 ? getVal(data[i - 1]) : null;
+                        const next = i < data.length - 1 ? getVal(data[i + 1]) : null;
+                        return (prev === null && next === null) ? 3 : 0;
+                    },
                     fill: false,
-                    tension: 0.3,
+                    tension: 0,
                     spanGaps: false
                 },
                 {
@@ -825,9 +832,16 @@ function createBandChart(canvasId, labelText, labels, avgData, minData, maxData,
                     data: isDrillDown ? minData.map((v, i) => ({ x: i, y: v })) : minData,
                     borderColor: 'transparent',
                     backgroundColor: colorHex + '33',
-                    pointRadius: 0,
+                    pointRadius: (ctx) => {
+                        const i = ctx.dataIndex;
+                        const data = ctx.dataset.data;
+                        const getVal = (v) => (v !== null && typeof v === 'object' ? v.y : v);
+                        const prev = i > 0 ? getVal(data[i - 1]) : null;
+                        const next = i < data.length - 1 ? getVal(data[i + 1]) : null;
+                        return (prev === null && next === null) ? 3 : 0;
+                    },
                     fill: '-1',
-                    tension: 0.3,
+                    tension: 0,
                     spanGaps: false
                 },
                 {
@@ -836,9 +850,16 @@ function createBandChart(canvasId, labelText, labels, avgData, minData, maxData,
                     borderColor: colorHex,
                     backgroundColor: 'transparent',
                     borderWidth: 2,
-                    tension: 0.3,
+                    tension: 0,
                     fill: false,
-                    pointRadius: 1,
+                    pointRadius: (ctx) => {
+                        const i = ctx.dataIndex;
+                        const data = ctx.dataset.data;
+                        const getVal = (v) => (v !== null && typeof v === 'object' ? v.y : v);
+                        const prev = i > 0 ? getVal(data[i - 1]) : null;
+                        const next = i < data.length - 1 ? getVal(data[i + 1]) : null;
+                        return (prev === null && next === null) ? 3 : 0;
+                    },
                     pointHoverRadius: 6,
                     spanGaps: false
                 }
@@ -2110,6 +2131,7 @@ window.toggleAverageLine = function (canvasId, avgValue) {
             borderDash: [10, 5],
             pointRadius: 0,
             fill: false,
+            tension: 0,
             order: 0
         });
     }

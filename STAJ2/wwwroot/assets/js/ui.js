@@ -2647,7 +2647,14 @@
                             data: dataArray,
                             borderColor: color,
                             backgroundColor: color + '20',
-                            tension: 0.3,
+                            pointRadius: (ctx) => {
+                                const i = ctx.dataIndex;
+                                const data = ctx.dataset.data;
+                                const prev = i > 0 ? data[i - 1] : null;
+                                const next = i < data.length - 1 ? data[i + 1] : null;
+                                return (prev === null && next === null) ? 3 : 0;
+                            },
+                            tension: 0,
                             fill: fill,
                             spanGaps: false
                         });
@@ -3028,12 +3035,18 @@
                         borderColor: color,
                         backgroundColor: createGradient(color),
                         borderWidth: 2.5,
-                        tension: 0.4,
+                        tension: 0,
                         fill: true,
                         spanGaps: false,
                         compId: compId,
                         isMaxLine: false,
-                        pointRadius: 0, // Ana halde nokta yok
+                        pointRadius: (ctx) => {
+                            const i = ctx.dataIndex;
+                            const data = ctx.dataset.data;
+                            const prev = i > 0 ? data[i - 1] : null;
+                            const next = i < data.length - 1 ? data[i + 1] : null;
+                            return (prev === null && next === null) ? 3 : 0;
+                        },
                         pointHoverRadius: 6,
                         pointHoverBackgroundColor: color,
                         pointHoverBorderColor: '#fff',
@@ -3048,11 +3061,17 @@
                         borderColor: color,
                         borderDash: [6, 4],
                         borderWidth: 1.2,
-                        tension: 0.4,
+                        tension: 0,
                         fill: false,
                         spanGaps: false,
-                        pointRadius: 0,
-                        pointHoverRadius: 0,
+                        pointRadius: (ctx) => {
+                            const i = ctx.dataIndex;
+                            const data = ctx.dataset.data;
+                            const prev = i > 0 ? data[i - 1] : null;
+                            const next = i < data.length - 1 ? data[i + 1] : null;
+                            return (prev === null && next === null) ? 3 : 0;
+                        },
+                        pointHoverRadius: 4,
                         compId: compId,
                         isMaxLine: true,
                         opacity: 0.7
@@ -3638,7 +3657,7 @@
                         pointRadius: 4,
                         pointHoverRadius: 7,
                         fill: true,
-                        tension: 0.3
+                        tension: 0
                     },
                     {
                         // YENİ: Veriyi tek bir sayı ile doldurmak yerine dinamik diziyi (thresholdPoints) veriyoruz
@@ -3649,7 +3668,7 @@
                         borderDash: [5, 5],
                         pointRadius: 2, // Eşiğin değiştiği yerler belli olsun diye hafif nokta eklendi
                         fill: false,
-                        tension: 0.1 // Eşik değişimlerinde çizgi keskin görünsün
+                        tension: 0 // Eşik değişimlerinde çizgi keskin görünsün
                     }
                 ]
             },
