@@ -852,54 +852,67 @@
                 if (compFilterEl) { compFilterEl.classList.remove('d-flex'); compFilterEl.classList.add('d-none'); }
 
                 content.innerHTML = `
-                <div class="row">
-                    <div class="col-lg-3 mb-4">
-                        <div class="card border-0 shadow-sm" style="background:var(--bg-card);">
-                            <div class="card-body">
-                                <h5 class="fw-bold mb-4" style="color:var(--text-title);"><i class="bi bi-sliders text-success"></i> Analiz Ayarları</h5>
+                <div class="container-fluid p-0">
+                    <!-- Üst Ayar Barı -->
+                    <div class="card border-0 shadow-sm mb-4" style="background:var(--bg-card); z-index: 1050; position: relative;">
+                        <div class="card-body p-3">
+                            <div class="d-flex flex-wrap align-items-end gap-3">
                                 
-                                <div class="mb-3">
-                                    <label class="form-label fw-bold small text-muted">KARŞILAŞTIRILACAK DEĞER</label>
-                                    <select id="comp-metric-select" class="form-select" onchange="ui.handleComparisonMetricChange(this.value)" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
-                                        <option value="" disabled selected>-- Seçiniz --</option>
+                                <div style="flex: 1; min-width: 200px;">
+                                    <label class="form-label fw-bold small text-muted mb-1 text-uppercase" style="letter-spacing: 0.5px;">Metrik</label>
+                                    <select id="comp-metric-select" class="form-select form-select-sm" onchange="ui.handleComparisonMetricChange(this.value)" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
+                                        <option value="" disabled selected>Metrik Seçiniz</option>
                                         <option value="CPU">CPU Kullanımı (%)</option>
                                         <option value="RAM">RAM Kullanımı (%)</option>
                                         <optgroup label="Ortak Diskler" id="comp-disk-optgroup"></optgroup>
                                     </select>
                                 </div>
 
-                                <div class="mb-4">
-                                    <label class="form-label fw-bold small text-muted">CİHAZLAR <span id="comp-selected-count" class="badge bg-secondary ms-1">0 Seçili</span></label>
-                                    <div id="comp-computers-container" class="border rounded p-2" style="max-height: 250px; overflow-y: auto; background:var(--bg-input); border-color:var(--border-input) !important;">
-                                        <small class="text-muted">Yükleniyor...</small>
+                                <div style="flex: 1; min-width: 200px; position: relative;">
+                                    <label class="form-label fw-bold small text-muted mb-1 text-uppercase" style="letter-spacing: 0.5px;">Cihazlar <span id="comp-selected-count" class="badge bg-primary ms-1">0</span></label>
+                                    <div class="dropdown">
+                                        <button id="comp-devices-btn" class="btn btn-outline-secondary btn-sm w-100 text-start d-flex justify-content-between align-items-start" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" style="background:var(--bg-input); border-color:var(--border-input); color:var(--text-main); min-height: 31px; white-space: normal; word-break: break-word; padding: 4px 8px;">
+                                            <span id="comp-selected-names" style="flex: 1;">Cihaz Seçimi...</span>
+                                            <i class="bi bi-chevron-down small ms-2 mt-1"></i>
+                                        </button>
+                                        <div id="comp-computers-container" class="dropdown-menu p-3 shadow-lg border-secondary" style="width: 320px; max-height: 400px; overflow-y: auto; background: var(--bg-card-muted); z-index: 2100;">
+                                            <small class="text-muted">Yükleniyor...</small>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div class="row g-2 mb-4">
-                                    <div class="col-12">
-                                        <label class="form-label fw-bold small text-muted">BAŞLANGIÇ</label>
-                                        <input type="datetime-local" id="comp-start" class="form-control form-control-sm" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
-                                    </div>
-                                    <div class="col-12">
-                                        <label class="form-label fw-bold small text-muted">BİTİŞ</label>
-                                        <input type="datetime-local" id="comp-end" class="form-control form-control-sm" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
-                                    </div>
+                                <div style="width: 180px;">
+                                    <label class="form-label fw-bold small text-muted mb-1 text-uppercase" style="letter-spacing: 0.5px;">Başlangıç</label>
+                                    <input type="datetime-local" id="comp-start" class="form-control form-control-sm" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
                                 </div>
 
-                                <button class="btn btn-success w-100 fw-bold shadow-sm" onclick="ui.generateDeviceComparison()">
-                                    <i class="bi bi-graph-up me-2"></i> Karşılaştır
-                                </button>
+                                <div style="width: 180px;">
+                                    <label class="form-label fw-bold small text-muted mb-1 text-uppercase" style="letter-spacing: 0.5px;">Bitiş</label>
+                                    <input type="datetime-local" id="comp-end" class="form-control form-control-sm" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
+                                </div>
+
+                                <div style="width: 150px;">
+                                    <button class="btn btn-success btn-sm w-100 fw-bold shadow-sm" onclick="ui.generateDeviceComparison()" style="height: 31px;">
+                                        <i class="bi bi-graph-up me-1"></i> Analiz Et
+                                    </button>
+                                </div>
+
                             </div>
                         </div>
                     </div>
 
-                    <div class="col-lg-9">
-                        <div id="comp-result-card" class="card border-0 shadow-sm p-3" style="background:var(--bg-card); display:none; height: 550px;">
+                    <!-- Grafik Alanı -->
+                    <div id="comp-result-card" class="card border-0 shadow-sm p-4" style="background:var(--bg-card); display:none; z-index: 1; position: relative;">
+                        <div style="height: 500px; width: 100%;">
                             <canvas id="comparisonCanvas"></canvas>
                         </div>
-                        <div id="comp-placeholder" class="text-center py-5 mt-5">
-                            <i class="bi bi-arrow-left-right display-1 text-muted opacity-50 mb-3 d-block"></i>
-                            <h4 class="fw-light" style="color: var(--text-title);">Değer ve cihazları seçerek karşılaştırmaya başlayın.</h4>
+                    </div>
+
+                    <div id="comp-placeholder" class="text-center py-5 mt-4 card border-0" style="background: var(--bg-card); opacity: 0.8;">
+                        <div class="py-5">
+                            <i class="bi bi-intersect display-1 text-muted opacity-25 mb-3 d-block"></i>
+                            <h4 class="fw-light" style="color: var(--text-title);">Karşılaştırma için parametreleri seçip "Analiz Et" butonuna basın.</h4>
+                            <p class="text-muted small">En az 2, en fazla 6 cihaz seçerek performans korelasyonu yapabilirsiniz.</p>
                         </div>
                     </div>
                 </div>`;
@@ -2807,15 +2820,31 @@
         },
 
         handleComparisonComputerChange: async (checkbox) => {
-            const checked = document.querySelectorAll('.comp-computer-check:checked');
+            const checked = Array.from(document.querySelectorAll('.comp-computer-check:checked'));
             const countEl = document.getElementById('comp-selected-count');
+            const namesEl = document.getElementById('comp-selected-names');
+
             if (countEl) countEl.innerText = `${checked.length} Seçili`;
+            
+            if (namesEl) {
+                if (checked.length === 0) {
+                    namesEl.innerText = "Cihaz Seçimi...";
+                } else {
+                    const names = checked.map(c => c.getAttribute('data-name')).join(', ');
+                    namesEl.innerText = names;
+                    namesEl.title = names; // Hover'da tamamını görmek için
+                }
+            }
 
             // Max 6 cihaz kısıtlaması (renk paletinden dolayı mantıklı bir sınır)
             if (checked.length > 6) {
                 Swal.fire({ icon: 'info', text: 'Karşılaştırma için en fazla 6 cihaz seçebilirsiniz.', timer: 2000, showConfirmButton: false });
                 if (checkbox) checkbox.checked = false;
-                if (countEl) countEl.innerText = `${checked.length - 1} Seçili`;
+                
+                // Geri almadan sonra tekrar güncelle
+                const finalChecked = Array.from(document.querySelectorAll('.comp-computer-check:checked'));
+                if (countEl) countEl.innerText = `${finalChecked.length} Seçili`;
+                if (namesEl) namesEl.innerText = finalChecked.map(c => c.getAttribute('data-name')).join(', ');
                 return;
             }
 
@@ -2899,10 +2928,26 @@
             const currentTheme = document.documentElement.getAttribute('data-theme');
             const isDarkMode = currentTheme === 'dark';
             const textColor = isDarkMode ? '#e2e8f0' : '#334155';
-            const gridColor = isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)';
+            const gridColor = isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)';
 
-            const colors = ['#0dcaf0', '#dc3545', '#198754', '#ffc107', '#6f42c1', '#fd7e14'];
+            // Profesyonel Renk Paleti
+            const colors = [
+                '#2563eb', // Royal Blue
+                '#dc2626', // Red
+                '#059669', // Green
+                '#d97706', // Amber/Orange
+                '#7c3aed', // Purple
+                '#db2777'  // Pink
+            ];
             const datasets = [];
+
+            // Gradyan oluşturma fonksiyonu
+            const createGradient = (color) => {
+                const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+                gradient.addColorStop(0, color + '55'); // Üstte %33 opaklık
+                gradient.addColorStop(1, color + '00'); // Altta tam şeffaf
+                return gradient;
+            };
 
             // Tüm dataları aynı zaman ekseninde birleştirmek için global timeMap ve Set
             const timeSet = new Set();
@@ -2910,19 +2955,16 @@
             const maxTimeMap = {};
 
             try {
-                // Fetch all data concurrently
-                const promises = checkedComputers.map(c => 
-                    api.get(`/api/Computer/${c.value}/metrics-history?start=${start}&end=${end}`)
-                );
-                
+                // Fetch batch data
+                const ids = checkedComputers.map(c => c.value).join(',');
                 Swal.fire({ title: 'Veriler Yükleniyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
-                const results = await Promise.all(promises);
+                const batchResult = await api.get(`/api/Computer/metrics-history-batch?ids=${ids}&start=${start}&end=${end}`);
                 Swal.close();
 
                 checkedComputers.forEach((c, index) => {
                     const compId = c.value;
                     const compName = c.getAttribute('data-name');
-                    const res = results[index];
+                    const res = batchResult[compId];
                     
                     deviceDataMap[compId] = { name: compName, values: {} };
 
@@ -2979,33 +3021,41 @@
                         return val !== undefined ? val.max : null;
                     });
 
-                    // Average Line
+                    // Ortalama Çizgisi (Dolu ve Modern)
                     datasets.push({
                         label: `${compData.name} (Ortalama)`,
                         data: dataArray,
                         borderColor: color,
-                        backgroundColor: color + '20',
-                        tension: 0.3,
-                        fill: false,
+                        backgroundColor: createGradient(color),
+                        borderWidth: 2.5,
+                        tension: 0.4,
+                        fill: true,
                         spanGaps: false,
                         compId: compId,
-                        isMaxLine: false
+                        isMaxLine: false,
+                        pointRadius: 0, // Ana halde nokta yok
+                        pointHoverRadius: 6,
+                        pointHoverBackgroundColor: color,
+                        pointHoverBorderColor: '#fff',
+                        pointHoverBorderWidth: 3,
+                        hitRadius: 10
                     });
 
-                    // Max Line
+                    // Maksimum Çizgisi (Daha ince ve kesikli)
                     datasets.push({
                         label: `${compData.name} (Maksimum)`,
                         data: maxDataArray,
                         borderColor: color,
-                        borderDash: [5, 5],
-                        borderWidth: 1.5,
-                        tension: 0.3,
+                        borderDash: [6, 4],
+                        borderWidth: 1.2,
+                        tension: 0.4,
                         fill: false,
                         spanGaps: false,
                         pointRadius: 0,
                         pointHoverRadius: 0,
                         compId: compId,
-                        isMaxLine: true
+                        isMaxLine: true,
+                        opacity: 0.7
                     });
                 });
 
@@ -3043,10 +3093,10 @@
                                     
                                     if (offlineStart === 0) startX = left;
                                     
-                                    ctx.fillStyle = 'rgba(220, 53, 69, 0.1)';
+                                    ctx.fillStyle = isDarkMode ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.05)';
                                     ctx.fillRect(startX, top, endX - startX, bottom - top);
                                     
-                                    ctx.strokeStyle = 'rgba(220, 53, 69, 0.3)';
+                                    ctx.strokeStyle = 'rgba(239, 68, 68, 0.2)';
                                     ctx.lineWidth = 1;
                                     ctx.setLineDash([5, 5]);
                                     ctx.beginPath();
@@ -3055,10 +3105,10 @@
                                     ctx.stroke();
                                     
                                     if (endX - startX > 60) {
-                                        ctx.fillStyle = 'rgba(220, 53, 69, 0.6)';
-                                        ctx.font = '11px Arial';
+                                        ctx.fillStyle = 'rgba(239, 68, 68, 0.5)';
+                                        ctx.font = '500 11px Outfit';
                                         ctx.textAlign = 'center';
-                                        ctx.fillText('Çevrimdışı', startX + (endX - startX) / 2, top + (bottom - top) / 2);
+                                        ctx.fillText('BAĞLANTI YOK', startX + (endX - startX) / 2, top + 20);
                                     }
                                     offlineStart = null;
                                 }
@@ -3071,10 +3121,10 @@
                             if (offlineStart === 0) startX = left;
                             let endX = right;
                             
-                            ctx.fillStyle = 'rgba(220, 53, 69, 0.1)';
+                            ctx.fillStyle = isDarkMode ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.05)';
                             ctx.fillRect(startX, top, endX - startX, bottom - top);
                             
-                            ctx.strokeStyle = 'rgba(220, 53, 69, 0.3)';
+                            ctx.strokeStyle = 'rgba(239, 68, 68, 0.2)';
                             ctx.lineWidth = 1;
                             ctx.setLineDash([5, 5]);
                             ctx.beginPath();
@@ -3082,10 +3132,10 @@
                             ctx.stroke();
                             
                             if (endX - startX > 60) {
-                                ctx.fillStyle = 'rgba(220, 53, 69, 0.6)';
-                                ctx.font = '11px Arial';
+                                ctx.fillStyle = 'rgba(239, 68, 68, 0.5)';
+                                ctx.font = '500 11px Outfit';
                                 ctx.textAlign = 'center';
-                                ctx.fillText('Çevrimdışı', startX + (endX - startX) / 2, top + (bottom - top) / 2);
+                                ctx.fillText('BAĞLANTI YOK', startX + (endX - startX) / 2, top + 20);
                             }
                         }
                         ctx.restore();
@@ -3100,9 +3150,35 @@
                         responsive: true, maintainAspectRatio: false,
                         interaction: { mode: 'index', intersect: false },
                         plugins: { 
-                            legend: { labels: { color: textColor } },
-                            title: { display: true, text: chartTitle, color: textColor },
+                            legend: { 
+                                position: 'top',
+                                align: 'center',
+                                labels: { 
+                                    color: textColor,
+                                    usePointStyle: true,
+                                    pointStyle: 'circle',
+                                    padding: 20,
+                                    font: { family: 'Outfit', size: 12, weight: '500' }
+                                } 
+                            },
+                            title: { 
+                                display: true, 
+                                text: chartTitle, 
+                                color: textColor,
+                                font: { family: 'Outfit', size: 16, weight: '600' },
+                                padding: { bottom: 10 }
+                            },
                             tooltip: {
+                                backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                                titleColor: isDarkMode ? '#f8fafc' : '#0f172a',
+                                bodyColor: isDarkMode ? '#e2e8f0' : '#334155',
+                                borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                                borderWidth: 1,
+                                padding: 12,
+                                boxPadding: 6,
+                                usePointStyle: true,
+                                titleFont: { family: 'Outfit', size: 13, weight: '600' },
+                                bodyFont: { family: 'Inter', size: 12 },
                                 callbacks: {
                                     title: function(context) { return context && context.length > 0 ? context[0].label : ''; },
                                     label: function(context) {
@@ -3127,24 +3203,39 @@
 
                                         return [
                                             `${compData.name}`,
-                                            `Ortalama Değer %${valObj.avg.toFixed(2)}`,
-                                            `Maksimum Değer: %${valObj.max.toFixed(2)} (${formatTrDate(new Date(valObj.maxTime))})`,
-                                            `Minimum Değer: %${valObj.min.toFixed(2)} (${formatTrDate(new Date(valObj.minTime))})`
+                                            `  • Ortalama: %${valObj.avg.toFixed(2)}`,
+                                            `  • Maksimum: %${valObj.max.toFixed(2)} (${formatTrDate(new Date(valObj.maxTime))})`,
+                                            `  • Minimum : %${valObj.min.toFixed(2)} (${formatTrDate(new Date(valObj.minTime))})`
                                         ];
                                     }
                                 }
                             }
                         },
                         scales: {
-                            y: { min: 0, max: 100, ticks: { color: textColor }, grid: { color: gridColor } },
+                            y: { 
+                                min: 0, max: 100, 
+                                ticks: { 
+                                    color: textColor,
+                                    font: { family: 'Inter', size: 11 },
+                                    callback: (val) => '%' + val
+                                }, 
+                                grid: { color: gridColor, drawBorder: false } 
+                            },
                             x: { 
                                 ticks: { 
                                     color: textColor,
                                     maxTicksLimit: 12,
+                                    font: { family: 'Inter', size: 11 },
                                     callback: function(val, index) {
                                         const label = this.getLabelForValue(val);
                                         if (label && typeof label === 'string') {
-                                            return label.split('-')[0].trim();
+                                            // "07 Mayıs 15.30.00" gibi geleni sadece "15.30" yapalım veya kısa tutalım
+                                            const part = label.split('-')[0].trim();
+                                            const parts = part.split(' ');
+                                            if (parts.length >= 3) {
+                                                return parts[2]; // Sadece Saat.Dakika.Saniye kısmı
+                                            }
+                                            return part;
                                         }
                                         return label;
                                     }

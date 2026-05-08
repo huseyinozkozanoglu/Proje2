@@ -128,6 +128,21 @@ public class ComputerController : ControllerBase
         return Ok(result.Data);
     }
 
+    [HttpGet("metrics-history-batch")]
+    [HasPermission(AppPermissions.None)]
+    public async Task<IActionResult> GetMetricsHistoryBatch([FromQuery] string ids, [FromQuery] string? start, [FromQuery] string? end, [FromQuery] int? maxPoints = null)
+    {
+        if (string.IsNullOrEmpty(ids)) return BadRequest(new { message = "Cihaz ID'leri boş olamaz." });
+        
+        var idList = ids.Split(',').Select(int.Parse).ToList();
+        var result = await _computerService.GetMetricsHistoryBatchAsync(idList, start, end, maxPoints);
+
+        if (!result.IsSuccess)
+            return BadRequest(new { message = result.Message, title = "Uyarı" });
+
+        return Ok(result.Data);
+    }
+
     // 7. Tüm Cihazları Getir
     [HttpGet]
     [HasPermission(AppPermissions.None)]

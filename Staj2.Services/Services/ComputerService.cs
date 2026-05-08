@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Staj2.Domain.Entities;
 using Staj2.Infrastructure.Data;
 using Staj2.Services.Interfaces;
@@ -13,12 +14,16 @@ public class ComputerService : BaseService, IComputerService
 {
     private readonly IConfiguration _config;
     private readonly IMemoryCache _cache;
+    private readonly AppDbContext _db;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     // YENİ: AppDbContext db'yi base sınıfa (BaseService) gönderiyoruz
-    public ComputerService(AppDbContext db, IConfiguration config, IMemoryCache cache) : base(db)
+    public ComputerService(AppDbContext db, IConfiguration config, IMemoryCache cache, IServiceScopeFactory scopeFactory) : base(db)
     {
+        _db = db;
         _config = config;
         _cache = cache;
+        _scopeFactory = scopeFactory;
     }
 
     // --- YARDIMCI METOT (Okuma İşlemi) ---
@@ -171,7 +176,6 @@ public class ComputerService : BaseService, IComputerService
     // GAP INJECTION: Cihazın kapalı olduğu zaman dilimlerini null değerlerle temsil eder
     public async Task<ServiceResult<object>> GetMetricsHistoryAsync(int id, string start, string end, int? maxPoints = null)
     {
-        int maxAllowedPoints = maxPoints ?? _config.GetValue<int>("ChartSettings:DefaultMaxPoints", 200);
         if (id <= 0)
             return ServiceResult<object>.Failure("Lütfen analiz yapmak için sol menüden bir cihaz seçiniz.");
 
@@ -184,7 +188,6 @@ public class ComputerService : BaseService, IComputerService
         if (startTime > endTime)
             return ServiceResult<object>.Failure("Başlangıç tarihi bitiş tarihinden sonra olamaz.");
 
-        // EF Core performans artışı: AsNoTracking() eklendi. Sadece okuma yapıldığı için RAM tüketimini inanılmaz düşürür.
         var rawCpuRam = await _db.ComputerMetrics
             .AsNoTracking()
             .Where(m => m.ComputerId == id && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
@@ -197,40 +200,202 @@ public class ComputerService : BaseService, IComputerService
             .Select(m => new { m.CreatedAt, m.UsedPercent, diskName = m.ComputerDisk.DiskName })
             .ToListAsync();
 
+        int maxAllowedPoints = maxPoints ?? _config.GetValue<int>("ChartSettings:DefaultMaxPoints", 200);
+        var processed = ProcessSingleComputerMetrics(rawCpuRam.Select(m => (m.CreatedAt, m.CpuUsage, m.RamUsage)).ToList(),
+                                                   rawDisks.Select(m => (m.CreatedAt, m.UsedPercent, m.diskName)).ToList(),
+                                                   startTime, endTime, maxAllowedPoints);
+
+        return ServiceResult<object>.Success(processed);
+    }
+
+    public async Task<ServiceResult<object>> GetMetricsHistoryBatchAsync(List<int> ids, string start, string end, int? maxPoints = null)
+    {
+        if (ids == null || !ids.Any()) return ServiceResult<object>.Failure("Lütfen cihaz seçiniz.");
+        if (string.IsNullOrWhiteSpace(start) || string.IsNullOrWhiteSpace(end)) return ServiceResult<object>.Failure("Lütfen tarih aralığı seçiniz.");
+        if (!DateTime.TryParse(start, out DateTime startTime) || !DateTime.TryParse(end, out DateTime endTime)) return ServiceResult<object>.Failure("Geçersiz tarih formatı.");
+        if (startTime > endTime) return ServiceResult<object>.Failure("Başlangıç tarihi bitiş tarihinden sonra olamaz.");
+
+        int maxAllowedPoints = maxPoints ?? _config.GetValue<int>("ChartSettings:DefaultMaxPoints", 200);
+
+        long totalSeconds = (long)(endTime - startTime).TotalSeconds;
+        int bucketSeconds = (int)(totalSeconds / maxAllowedPoints);
+        if (bucketSeconds <= 0) bucketSeconds = 1;
+
+        // 6 cihaz için 6 ayrı asenkron görev (Task) oluşturuyoruz
+        var tasks = ids.Select(async id =>
+        {
+            // ÖNEMLİ: Her paralel işlem için yeni bir Scope ve DbContext yaratıyoruz
+            using var scope = _scopeFactory.CreateScope();
+            // NOT: "AppDbContext" yazan yere kendi Context adınızı yazın (örn: StajDbContext)
+            var localDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            // 1. O cihaza ait CPU verilerini getir
+            var cpuBuckets = await localDb.ComputerMetrics
+                .AsNoTracking()
+                .Where(m => m.ComputerId == id && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+                .GroupBy(m => EF.Functions.DateDiffSecond(startTime, m.CreatedAt) / bucketSeconds)
+                .Select(g => new
+                {
+                    BucketIndex = g.Key,
+                    MaxCreatedAt = g.Max(m => m.CreatedAt),
+                    CpuAvg = Math.Round(g.Average(m => m.CpuUsage), 2),
+                    CpuMin = Math.Round(g.Min(m => m.CpuUsage), 2),
+                    CpuMax = Math.Round(g.Max(m => m.CpuUsage), 2),
+                    RamAvg = Math.Round(g.Average(m => m.RamUsage), 2),
+                    RamMin = Math.Round(g.Min(m => m.RamUsage), 2),
+                    RamMax = Math.Round(g.Max(m => m.RamUsage), 2)
+                })
+                .ToListAsync();
+
+            // 2. O cihaza ait Disk verilerini getir
+            var diskBuckets = await localDb.DiskMetrics
+                .AsNoTracking()
+                .Where(m => m.ComputerDisk.ComputerId == id && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+                .GroupBy(m => new {
+                    DiskName = m.ComputerDisk.DiskName,
+                    BucketIndex = EF.Functions.DateDiffSecond(startTime, m.CreatedAt) / bucketSeconds
+                })
+                .Select(g => new
+                {
+                    DiskName = g.Key.DiskName,
+                    BucketIndex = g.Key.BucketIndex,
+                    MaxCreatedAt = g.Max(m => m.CreatedAt),
+                    UsedAvg = Math.Round(g.Average(m => m.UsedPercent), 2),
+                    UsedMin = Math.Round(g.Min(m => m.UsedPercent), 2),
+                    UsedMax = Math.Round(g.Max(m => m.UsedPercent), 2)
+                })
+                .ToListAsync();
+
+            // 3. Gap Injection (Eksik verileri null ile doldurma)
+            var finalCpuRam = FillCpuGapsForBatch(cpuBuckets, startTime, bucketSeconds, maxAllowedPoints);
+
+            var finalDisks = new List<DiskBucketDto>();
+            var diskNames = diskBuckets.Select(d => d.DiskName).Distinct();
+            foreach (var dn in diskNames)
+            {
+                var specificDiskData = diskBuckets.Where(d => d.DiskName == dn).ToList();
+                finalDisks.AddRange(FillDiskGapsForBatch(specificDiskData, dn, startTime, bucketSeconds, maxAllowedPoints));
+            }
+
+            // Görev sonucunu id ile birlikte dönüyoruz
+            return new { ComputerId = id, Data = new { CpuRam = finalCpuRam, Disks = finalDisks } };
+        });
+
+        // BÜYÜK FARK BURADA: Tüm görevleri (cihazları) AYNI ANDA çalıştır ve hepsinin bitmesini bekle
+        var results = await Task.WhenAll(tasks);
+
+        // Sonuçları Dictionary'e çevirip dön
+        var response = results.ToDictionary(r => r.ComputerId, r => r.Data);
+
+        return ServiceResult<object>.Success(response);
+    }
+
+    // ----- YARDIMCI METOTLAR -----
+    private List<CpuRamBucketDto> FillCpuGapsForBatch(IEnumerable<dynamic> dbData, DateTime start, int bucketSeconds, int maxPoints)
+    {
+        var result = new List<CpuRamBucketDto>(maxPoints);
+        var lookup = dbData.ToDictionary(d => (int)d.BucketIndex);
+
+        for (int i = 0; i <= maxPoints; i++)
+        {
+            var bucketTime = start.AddSeconds(i * bucketSeconds);
+            if (lookup.TryGetValue(i, out var data))
+            {
+                result.Add(new CpuRamBucketDto
+                {
+                    CreatedAt = bucketTime,
+                    MaxCreatedAt = data.MaxCreatedAt,
+                    CpuAvg = data.CpuAvg,
+                    CpuMin = data.CpuMin,
+                    CpuMax = data.CpuMax,
+                    CpuOpen = data.CpuAvg,
+                    CpuClose = data.CpuAvg,
+                    RamAvg = data.RamAvg,
+                    RamMin = data.RamMin,
+                    RamMax = data.RamMax,
+                    RamOpen = data.RamAvg,
+                    RamClose = data.RamAvg
+                });
+            }
+            else
+            {
+                result.Add(new CpuRamBucketDto
+                {
+                    CreatedAt = bucketTime,
+                    CpuAvg = null,
+                    CpuMin = null,
+                    CpuMax = null,
+                    CpuOpen = null,
+                    CpuClose = null,
+                    RamAvg = null,
+                    RamMin = null,
+                    RamMax = null,
+                    RamOpen = null,
+                    RamClose = null
+                });
+            }
+        }
+        return result;
+    }
+
+    private List<DiskBucketDto> FillDiskGapsForBatch(IEnumerable<dynamic> dbData, string diskName, DateTime start, int bucketSeconds, int maxPoints)
+    {
+        var result = new List<DiskBucketDto>(maxPoints);
+        var lookup = dbData.ToDictionary(d => (int)d.BucketIndex);
+
+        for (int i = 0; i <= maxPoints; i++)
+        {
+            var bucketTime = start.AddSeconds(i * bucketSeconds);
+            if (lookup.TryGetValue(i, out var data))
+            {
+                result.Add(new DiskBucketDto
+                {
+                    CreatedAt = bucketTime,
+                    MaxCreatedAt = data.MaxCreatedAt,
+                    DiskName = diskName,
+                    UsedAvg = data.UsedAvg,
+                    UsedMin = data.UsedMin,
+                    UsedMax = data.UsedMax,
+                    UsedOpen = data.UsedAvg,
+                    UsedClose = data.UsedAvg
+                });
+            }
+            else
+            {
+                result.Add(new DiskBucketDto
+                {
+                    CreatedAt = bucketTime,
+                    DiskName = diskName,
+                    UsedAvg = null,
+                    UsedMin = null,
+                    UsedMax = null,
+                    UsedOpen = null,
+                    UsedClose = null
+                });
+            }
+        }
+        return result;
+    }
+
+    private object ProcessSingleComputerMetrics(List<(DateTime CreatedAt, double CpuUsage, double RamUsage)> rawCpuRam, 
+                                              List<(DateTime CreatedAt, double UsedPercent, string diskName)> rawDisks, 
+                                              DateTime startTime, DateTime endTime, int maxAllowedPoints)
+    {
         if (!rawCpuRam.Any() && !rawDisks.Any())
         {
-            return ServiceResult<object>.Success(new { CpuRam = new List<CpuRamBucketDto>(), Disks = new List<DiskBucketDto>() });
-        }
-
-        var firstDataTime = rawCpuRam.Any() ? rawCpuRam.Min(m => m.CreatedAt) : rawDisks.Min(m => m.CreatedAt);
-        var lastDataTime = rawCpuRam.Any() ? rawCpuRam.Max(m => m.CreatedAt) : rawDisks.Max(m => m.CreatedAt);
-
-        if (rawDisks.Any())
-        {
-            var diskMin = rawDisks.Min(m => m.CreatedAt);
-            var diskMax = rawDisks.Max(m => m.CreatedAt);
-            if (diskMin < firstDataTime) firstDataTime = diskMin;
-            if (diskMax > lastDataTime) lastDataTime = diskMax;
+            return new { CpuRam = new List<CpuRamBucketDto>(), Disks = new List<DiskBucketDto>() };
         }
 
         var gapThreshold = TimeSpan.FromMinutes(5);
-
-        // DİKKAT: Distinct ve Count işlemlerini bellekte yapmak yerine sadece Count kullanarak CPU'yu rahatlattık.
         int currentDataCount = rawCpuRam.Any() ? rawCpuRam.Count : rawDisks.Select(d => d.CreatedAt).Distinct().Count();
 
-        if (maxPoints == 0 || currentDataCount <= maxAllowedPoints)
+        if (maxAllowedPoints == 0 || currentDataCount <= maxAllowedPoints)
         {
-            // ==========================================
-            // SENARYO A: Veri Azsa (Boşluk Enjeksiyonu)
-            // İş akışı tamamen korundu.
-            // ==========================================
             var sortedCpuRam = rawCpuRam.OrderBy(m => m.CreatedAt).ToList();
             var cpuRamWithGaps = new List<CpuRamBucketDto>();
 
             if (sortedCpuRam.Count > 0 && (sortedCpuRam[0].CreatedAt - startTime) > gapThreshold)
-            {
                 cpuRamWithGaps.Add(CreateEmptyCpuDto(startTime));
-            }
 
             for (int i = 0; i < sortedCpuRam.Count; i++)
             {
@@ -256,9 +421,7 @@ public class ComputerService : BaseService, IComputerService
                 });
 
                 if (i < sortedCpuRam.Count - 1 && (sortedCpuRam[i + 1].CreatedAt - current.CreatedAt) > gapThreshold)
-                {
                     cpuRamWithGaps.Add(CreateEmptyCpuDto(current.CreatedAt.AddSeconds(1)));
-                }
             }
 
             if (sortedCpuRam.Count > 0 && (endTime - sortedCpuRam[^1].CreatedAt) > gapThreshold)
@@ -268,7 +431,6 @@ public class ComputerService : BaseService, IComputerService
             }
 
             var disksWithGaps = new List<DiskBucketDto>();
-            // PERFORMANS NOKTASI: Diskleri her disk ismi için ayrı ayrı rawDisks.Where(...) ile filtrelemek yerine 1 kere grupluyoruz!
             var groupedDisks = rawDisks.GroupBy(d => d.diskName);
 
             foreach (var diskGroup in groupedDisks)
@@ -307,14 +469,10 @@ public class ComputerService : BaseService, IComputerService
                 }
             }
 
-            return ServiceResult<object>.Success(new { CpuRam = cpuRamWithGaps, Disks = disksWithGaps });
+            return new { CpuRam = cpuRamWithGaps, Disks = disksWithGaps };
         }
         else
         {
-            // ==========================================
-            // SENARYO B: Veri Çoksa (Zaman Izgarası & Kova)
-            // İş akışı tamamen korundu, algoritmik darboğazlar temizlendi.
-            // ==========================================
             long totalTicks = (endTime - startTime).Ticks;
             long bucketTicks = totalTicks / maxAllowedPoints;
             if (bucketTicks <= 0) bucketTicks = TimeSpan.FromSeconds(1).Ticks;
@@ -322,7 +480,6 @@ public class ComputerService : BaseService, IComputerService
             long firstBucket = 0;
             long lastBucket = totalTicks > 0 ? (totalTicks - 1) / bucketTicks : 0;
 
-            // PERFORMANS NOKTASI: Gruplama yapıldıktan sonra içindeki liste sadece 1 kere sıralanır. (OrderBy 6 kere çalıştırılmaz)
             var cpuRamLookup = rawCpuRam
                 .GroupBy(m => (m.CreatedAt.Ticks - startTime.Ticks) / bucketTicks)
                 .ToDictionary(g => g.Key, g => g.OrderBy(x => x.CreatedAt).ToList());
@@ -336,8 +493,6 @@ public class ComputerService : BaseService, IComputerService
                 {
                     var firstItem = sortedItems.First();
                     var lastItem = sortedItems.Last();
-
-                    // Sıralanmış listede Min/Max değerleri hızlıca bulunur
                     var cpuMinItem = sortedItems.OrderBy(m => m.CpuUsage).First();
                     var cpuMaxItem = sortedItems.OrderByDescending(m => m.CpuUsage).First();
                     var ramMinItem = sortedItems.OrderBy(m => m.RamUsage).First();
@@ -347,21 +502,20 @@ public class ComputerService : BaseService, IComputerService
                     {
                         CreatedAt = bucketTime,
                         MaxCreatedAt = lastItem.CreatedAt,
-                        CpuAvg = Math.Round(sortedItems.Average(m => m.CpuUsage), 2),
-                        CpuMin = Math.Round(cpuMinItem.CpuUsage, 2),
+                        CpuAvg = Math.Round((double)sortedItems.Average(m => m.CpuUsage), 2),
+                        CpuMin = Math.Round((double)cpuMinItem.CpuUsage, 2),
                         CpuMinTime = cpuMinItem.CreatedAt,
-                        CpuMax = Math.Round(cpuMaxItem.CpuUsage, 2),
+                        CpuMax = Math.Round((double)cpuMaxItem.CpuUsage, 2),
                         CpuMaxTime = cpuMaxItem.CreatedAt,
-                        CpuOpen = Math.Round(firstItem.CpuUsage, 2),
-                        CpuClose = Math.Round(lastItem.CpuUsage, 2),
-
-                        RamAvg = Math.Round(sortedItems.Average(m => m.RamUsage), 2),
-                        RamMin = Math.Round(ramMinItem.RamUsage, 2),
+                        CpuOpen = Math.Round((double)firstItem.CpuUsage, 2),
+                        CpuClose = Math.Round((double)lastItem.CpuUsage, 2),
+                        RamAvg = Math.Round((double)sortedItems.Average(m => m.RamUsage), 2),
+                        RamMin = Math.Round((double)ramMinItem.RamUsage, 2),
                         RamMinTime = ramMinItem.CreatedAt,
-                        RamMax = Math.Round(ramMaxItem.RamUsage, 2),
+                        RamMax = Math.Round((double)ramMaxItem.RamUsage, 2),
                         RamMaxTime = ramMaxItem.CreatedAt,
-                        RamOpen = Math.Round(firstItem.RamUsage, 2),
-                        RamClose = Math.Round(lastItem.RamUsage, 2)
+                        RamOpen = Math.Round((double)firstItem.RamUsage, 2),
+                        RamClose = Math.Round((double)lastItem.RamUsage, 2)
                     });
                 }
                 else
@@ -371,7 +525,6 @@ public class ComputerService : BaseService, IComputerService
             }
 
             var gridDisks = new List<DiskBucketDto>();
-            // PERFORMANS NOKTASI: rawDisks listesi içindeki Where koşulu tamamen kaldırıldı. 1 Milyon satır varsa baştan sona tekrar taramayacak.
             var groupedDisksByName = rawDisks.GroupBy(d => d.diskName);
 
             foreach (var diskGroup in groupedDisksByName)
@@ -395,13 +548,13 @@ public class ComputerService : BaseService, IComputerService
                         {
                             CreatedAt = bucketTime,
                             MaxCreatedAt = lastItem.CreatedAt,
-                            UsedAvg = Math.Round(sortedItems.Average(m => m.UsedPercent), 2),
-                            UsedMin = Math.Round(minItem.UsedPercent, 2),
+                            UsedAvg = Math.Round((double)sortedItems.Average(m => m.UsedPercent), 2),
+                            UsedMin = Math.Round((double)minItem.UsedPercent, 2),
                             UsedMinTime = minItem.CreatedAt,
-                            UsedMax = Math.Round(maxItem.UsedPercent, 2),
+                            UsedMax = Math.Round((double)maxItem.UsedPercent, 2),
                             UsedMaxTime = maxItem.CreatedAt,
-                            UsedOpen = Math.Round(firstItem.UsedPercent, 2),
-                            UsedClose = Math.Round(lastItem.UsedPercent, 2),
+                            UsedOpen = Math.Round((double)firstItem.UsedPercent, 2),
+                            UsedClose = Math.Round((double)lastItem.UsedPercent, 2),
                             DiskName = dn
                         });
                     }
@@ -412,7 +565,7 @@ public class ComputerService : BaseService, IComputerService
                 }
             }
 
-            return ServiceResult<object>.Success(new { CpuRam = gridCpuRam, Disks = gridDisks });
+            return new { CpuRam = gridCpuRam, Disks = gridDisks };
         }
     }
 
