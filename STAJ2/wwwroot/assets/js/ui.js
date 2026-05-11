@@ -457,7 +457,10 @@
                         </div>
                         <div class="card border-0 shadow-sm" style="background:var(--bg-card);">
                             <div class="card-header border-bottom border-secondary bg-transparent py-3 d-flex justify-content-between align-items-center">
-                                <h5 class="mb-0 small"><i class="bi bi-list-task"></i> Log Akışı</h5>
+                                <div class="d-flex align-items-center gap-3">
+                                    <h5 class="mb-0 small"><i class="bi bi-list-task"></i> Log Akışı</h5>
+                                    <div id="activeLogTimeFilter" style="display: none;"></div>
+                                </div>
                                 <span id="logCountBadge" class="badge bg-secondary">0 Olay</span>
                             </div>
                             <div class="card-body p-0">
@@ -1081,6 +1084,7 @@
     // --- Fonksiyonları Dışarı Aç (Window.UI) ---
     window.ui = {
         allLogs: [],
+        currentLogTimeFilter: null,
         filteredLogs: [],
         logRenderIndex: 0,
         filterTimeout: null,
@@ -3459,6 +3463,11 @@
                 return;
             }
 
+            // Yeni veri çekerken yerel zaman filtresini sıfırla
+            ui.currentLogTimeFilter = null;
+            const badge = document.getElementById('activeLogTimeFilter');
+            if (badge) { badge.style.display = 'none'; badge.innerHTML = ''; }
+
             Swal.fire({ title: 'Loglar Hazırlanıyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
 
             try {
@@ -3475,7 +3484,52 @@
                     };
                 });
                 
-                ui.renderLogHistogram(res.histogram || []);
+                // PERFORMANS: Histogram tooltip'leri için dağılım verisini önceden hesapla
+                const histogram = res.histogram || [];
+                if (histogram.length > 0) {
+                    histogram.forEach((bucket, idx) => {
+                        const startTs = new Date(bucket.timestamp).getTime();
+                        let endTs;
+                        if (idx < histogram.length - 1) {
+                            endTs = new Date(histogram[idx + 1].timestamp).getTime();
+                        } else if (histogram.length > 1) {
+                            endTs = startTs + (new Date(histogram[1].timestamp).getTime() - new Date(histogram[0].timestamp).getTime());
+                        } else {
+                            endTs = startTs + 60000;
+                        }
+
+                        // Bu bucket'taki tüm logları bul
+                        const logsInBucket = ui.allLogs.filter(l => {
+                            const ts = new Date(l.timestamp).getTime();
+                            return ts >= startTs && ts < endTs;
+                        });
+
+                        const totalLogs = logsInBucket.length;
+                        bucket._details = {
+                            Critical: { count: 0, metrics: {}, percent: 0 },
+                            Warning: { count: 0, metrics: {}, percent: 0 },
+                            Info: { count: 0, metrics: {}, percent: 0 }
+                        };
+
+                        logsInBucket.forEach(l => {
+                            const detail = bucket._details[l.level];
+                            if (detail) {
+                                detail.count++;
+                                if (!detail.metrics[l.metric]) detail.metrics[l.metric] = { count: 0, limit: l.limit };
+                                detail.metrics[l.metric].count++;
+                            }
+                        });
+
+                        // Yüzdeleri hesapla
+                        if (totalLogs > 0) {
+                            Object.keys(bucket._details).forEach(level => {
+                                bucket._details[level].percent = Math.round((bucket._details[level].count / totalLogs) * 100);
+                            });
+                        }
+                    });
+                }
+
+                ui.renderLogHistogram(histogram);
                 ui.applyLocalLogFilters();
                 
                 Swal.close();
@@ -3525,6 +3579,43 @@
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
+                    onHover: (event, elements) => {
+                        if (event && event.native && event.native.target) {
+                            event.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                        }
+                    },
+                    onClick: (event, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            const d = data[index];
+                            const dateStart = new Date(d.timestamp);
+                            
+                            let dateEnd;
+                            if (index < data.length - 1) {
+                                dateEnd = new Date(data[index + 1].timestamp);
+                            } else if (data.length > 1) {
+                                const diff = new Date(data[1].timestamp).getTime() - new Date(data[0].timestamp).getTime();
+                                dateEnd = new Date(dateStart.getTime() + diff);
+                            } else {
+                                dateEnd = new Date(dateStart.getTime() + 60000);
+                            }
+
+                            ui.currentLogTimeFilter = { start: dateStart, end: dateEnd };
+                            
+                            const fmt = (dt) => dt.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' }) + ' ' + dt.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+                            const badge = document.getElementById('activeLogTimeFilter');
+                            if (badge) {
+                                badge.innerHTML = `
+                                    <span class="badge bg-info text-dark d-flex align-items-center gap-2 py-2 px-3 shadow-sm animate__animated animate__fadeIn" style="font-size: 0.75rem; border-radius: 20px;">
+                                        <i class="bi bi-clock-history"></i> 
+                                        <span class="fw-bold">${fmt(dateStart)} - ${fmt(dateEnd)}</span>
+                                        <i class="bi bi-x-circle-fill ms-1 cursor-pointer" onclick="ui.clearLogTimeFilter()" title="Filtreyi Kaldır" style="font-size: 1rem;"></i>
+                                    </span>`;
+                                badge.style.display = 'block';
+                            }
+                            ui.applyLocalLogFilters();
+                        }
+                    },
                     interaction: { mode: 'index', intersect: false },
                     plugins: { 
                         legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 10, color: textColor, font: { size: 10 } } },
@@ -3535,7 +3626,9 @@
                             },
                             callbacks: {
                                 title: (items) => {
+                                    if (!items || items.length === 0) return '';
                                     const d = data[items[0].dataIndex];
+                                    if (!d) return '';
                                     const dateStart = new Date(d.timestamp);
                                     
                                     // Bitiş zamanını hesapla (Bir sonraki veriden veya tahminle)
@@ -3561,8 +3654,39 @@
                                     }
                                 },
                                 label: (item) => {
-                                    const val = item.raw === null ? 0 : item.raw;
-                                    return `${item.dataset.label}: ${val} adet`;
+                                    const d = data[item.dataIndex];
+                                    if (!d || !d._details) return `${item.dataset.label}: ${item.raw || 0} adet`;
+                                    
+                                    const levelDetail = d._details[item.dataset.label];
+                                    const count = levelDetail ? levelDetail.count : 0;
+                                    if (count === 0) return null; // Sadece veri olan seviyeleri gösterelim
+
+                                    const lines = [];
+                                    let header = item.dataset.label;
+                                    
+                                    if (item.dataset.label === 'Critical') {
+                                        header += ` (%95 üzeri)`;
+                                    }
+                                    
+                                    lines.push(`${header} ${count} adet`);
+
+                                    const metrics = levelDetail.metrics;
+                                    const parts = [];
+                                    if (metrics['RAM'] && metrics['RAM'].count > 0) parts.push(`Ram: ${metrics['RAM'].count}`);
+                                    if (metrics['CPU'] && metrics['CPU'].count > 0) parts.push(`CPU: ${metrics['CPU'].count}`);
+                                    
+                                    // Diskleri filtrele
+                                    Object.keys(metrics).forEach(m => {
+                                        if (m.startsWith('Disk') && metrics[m].count > 0) {
+                                            parts.push(`${m}: ${metrics[m].count}`);
+                                        }
+                                    });
+
+                                    if (parts.length > 0) {
+                                        lines.push(`(${parts.join(', ')})`);
+                                    }
+
+                                    return lines;
                                 }
                             }
                         }
@@ -3592,6 +3716,13 @@
             const filterInfo = document.getElementById('filterInfo').checked;
 
             const filtered = ui.allLogs.filter(l => {
+                if (ui.currentLogTimeFilter) {
+                    const logTs = new Date(l.timestamp).getTime();
+                    if (logTs < ui.currentLogTimeFilter.start.getTime() || logTs >= ui.currentLogTimeFilter.end.getTime()) {
+                        return false;
+                    }
+                }
+
                 if (l.metric === "CPU" && !filterCpu) return false;
                 if (l.metric === "RAM" && !filterRam) return false;
                 if (l.metric.startsWith("Disk") && !filterDisk) return false;
@@ -3668,6 +3799,16 @@
 
             tbody.insertAdjacentHTML('beforeend', html);
             ui.logRenderIndex = end;
+        },
+
+        clearLogTimeFilter: () => {
+            ui.currentLogTimeFilter = null;
+            const badge = document.getElementById('activeLogTimeFilter');
+            if (badge) {
+                badge.style.display = 'none';
+                badge.innerHTML = '';
+            }
+            ui.applyLocalLogFilters();
         },
 
         filterHeatmap: (cat) => {
