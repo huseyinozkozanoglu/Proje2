@@ -1,6 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="MailKit" Version="4.16.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Staj2.Domain\Staj2.Domain.csproj" />
     <ProjectReference Include="..\Staj2.Infrastructure\Staj2.Infrastructure.csproj" />
   </ItemGroup>
