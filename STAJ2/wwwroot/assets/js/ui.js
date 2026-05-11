@@ -803,69 +803,83 @@
                 subtitle.innerText = "Metrikler arasındaki ilişkiyi farklı grafik türleriyle keşfedin.";
 
                 content.innerHTML = `
-                <div class="row">
-                    <div class="col-lg-3 mb-4">
-                        <div class="card border-0 shadow-sm" style="background:var(--bg-card);">
-                            <div class="card-body">
-                                <h5 class="fw-bold mb-4" style="color:var(--text-title);"><i class="bi bi-sliders text-primary"></i> Analiz Ayarları</h5>
+                <div class="container-fluid p-0">
+                    <!-- Üst Ayar Barı -->
+                    <div class="card border-0 shadow-sm mb-4" style="background:var(--bg-card); z-index: 1050; position: relative;">
+                        <div class="card-body p-3">
+                            <div class="d-flex flex-wrap align-items-end gap-3">
                                 
-                                <div class="mb-4">
-                                    <label class="form-label fw-bold small text-muted">GRAFİK TİPİ</label>
-                                    <select id="corr-type-select" class="form-select" onchange="ui.handleCorrModeChange(this.value)" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
-                                        <option value="" disabled selected>-- Seçiniz --</option>
+                                <div style="width: 180px;">
+                                    <label class="form-label fw-bold small text-muted mb-1 text-uppercase" style="letter-spacing: 0.5px;">Grafik Tipi</label>
+                                    <select id="corr-type-select" class="form-select form-select-sm" onchange="ui.handleCorrModeChange(this.value)" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
+                                        <option value="" disabled selected>Tip Seçiniz</option>
                                         <option value="line">Zaman Serisi (Line)</option>
                                         <option value="scatter">Dağılım (Scatter Plot)</option>
                                     </select>
                                 </div>
-                                <div class="mb-3">
-                                    <label class="form-label fw-bold small text-muted">CİHAZ SEÇİMİ</label>
-                                    <select id="corr-computer-select" class="form-select" onchange="ui.loadCorrelationDisks(this.value)" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
+
+                                <div style="width: 200px;">
+                                    <label class="form-label fw-bold small text-muted mb-1 text-uppercase" style="letter-spacing: 0.5px;">Cihaz</label>
+                                    <select id="corr-computer-select" class="form-select form-select-sm" onchange="ui.loadCorrelationDisks(this.value)" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
                                         <option value="">Yükleniyor...</option>
                                     </select>
                                 </div>
 
-                                <div class="row g-2 mb-4">
-                                    <div class="col-12">
-                                        <label class="form-label fw-bold small text-muted">BAŞLANGIÇ</label>
-                                        <input type="datetime-local" id="corr-start" class="form-control form-control-sm" style="background:var(--bg-input); color:var(--text-main);">
-                                    </div>
-                                    <div class="col-12">
-                                        <label class="form-label fw-bold small text-muted">BİTİŞ</label>
-                                        <input type="datetime-local" id="corr-end" class="form-control form-control-sm" style="background:var(--bg-input); color:var(--text-main);">
-                                    </div>
-                                </div>
-
-                                <div class="mb-4">
-                                    <label class="form-label fw-bold small text-muted">VERİ SEÇİMİ <span id="selection-limit-info" class="badge bg-secondary ms-1"></span></label>
-                                    <div id="corr-metrics-container">
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input corr-check" type="checkbox" id="check-cpu" value="CPU">
-                                            <label class="form-check-label small" for="check-cpu">CPU Kullanımı (%)</label>
-                                        </div>
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input corr-check" type="checkbox" id="check-ram" value="RAM">
-                                            <label class="form-check-label small" for="check-ram">RAM Kullanımı (%)</label>
-                                        </div>
-                                        <div id="corr-disk-checks" class="mt-2 pt-2 border-top border-secondary" style="border-color:var(--border-color) !important;">
-                                            <small class="text-muted d-block">Diskler (Cihaz Seçin)</small>
+                                <div style="flex: 1; min-width: 220px; position: relative;">
+                                    <label class="form-label fw-bold small text-muted mb-1 text-uppercase" style="letter-spacing: 0.5px;">Veri Seçimi <span id="corr-selected-count" class="badge bg-primary ms-1">0</span> <span id="selection-limit-info" class="text-info" style="font-size: 10px; opacity: 0.8;"></span></label>
+                                    <div class="dropdown">
+                                        <button id="corr-metrics-btn" class="btn btn-outline-secondary btn-sm w-100 text-start d-flex justify-content-between align-items-start" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" style="background:var(--bg-input); border-color:var(--border-input); color:var(--text-main); min-height: 31px; padding: 4px 8px;">
+                                            <span id="corr-selected-names" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Metrik Seçiniz...</span>
+                                            <i class="bi bi-chevron-down small ms-2 mt-1"></i>
+                                        </button>
+                                        <div id="corr-metrics-dropdown" class="dropdown-menu p-3 shadow-lg border-secondary" style="width: 300px; max-height: 400px; overflow-y: auto; background: var(--bg-card-muted); z-index: 2100;">
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input corr-check" type="checkbox" id="check-cpu" value="CPU" onchange="ui.handleCorrMetricChange(this)">
+                                                <label class="form-check-label small" for="check-cpu">CPU Kullanımı (%)</label>
+                                            </div>
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input corr-check" type="checkbox" id="check-ram" value="RAM" onchange="ui.handleCorrMetricChange(this)">
+                                                <label class="form-check-label small" for="check-ram">RAM Kullanımı (%)</label>
+                                            </div>
+                                            <div id="corr-disk-checks" class="mt-2 pt-2 border-top border-secondary" style="border-color:var(--border-color) !important;">
+                                                <small class="text-muted d-block">Diskler (Cihaz Seçin)</small>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <button class="btn btn-primary w-100 fw-bold shadow-sm" onclick="ui.withLoading(this, ui.generateCorrelationAnalysis)">
-                                    <i class="bi bi-graph-up-arrow me-2"></i> Analizi Göster
-                                </button>
+                                <div style="width: 170px;">
+                                    <label class="form-label fw-bold small text-muted mb-1 text-uppercase" style="letter-spacing: 0.5px;">Başlangıç</label>
+                                    <input type="datetime-local" id="corr-start" class="form-control form-control-sm" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
+                                </div>
+
+                                <div style="width: 170px;">
+                                    <label class="form-label fw-bold small text-muted mb-1 text-uppercase" style="letter-spacing: 0.5px;">Bitiş</label>
+                                    <input type="datetime-local" id="corr-end" class="form-control form-control-sm" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
+                                </div>
+
+                                <div style="width: 130px;">
+                                    <button class="btn btn-primary btn-sm w-100 fw-bold shadow-sm" onclick="ui.withLoading(this, ui.generateCorrelationAnalysis)" style="height: 31px;">
+                                        <i class="bi bi-graph-up-arrow me-1"></i> Analiz
+                                    </button>
+                                </div>
+
                             </div>
                         </div>
                     </div>
 
-                    <div class="col-lg-9">
-                        <div id="corr-result-card" class="card border-0 shadow-sm p-3" style="background:var(--bg-card); display:none; height: 550px;">
+                    <!-- Grafik Alanı -->
+                    <div id="corr-result-card" class="card border-0 shadow-sm p-4" style="background:var(--bg-card); display:none; position: relative;">
+                        <div style="height: 520px; width: 100%;">
                             <canvas id="correlationCanvas"></canvas>
                         </div>
-                        <div id="corr-placeholder" class="text-center py-5 mt-5">
-                            <i class="bi bi-intersect display-1 text-muted opacity-50 mb-3 d-block"></i>
+                    </div>
+
+                    <div id="corr-placeholder" class="text-center py-5 mt-4 card border-0" style="background: var(--bg-card); opacity: 0.8;">
+                        <div class="py-5">
+                            <i class="bi bi-intersect display-1 text-muted opacity-25 mb-3 d-block"></i>
                             <h4 class="fw-light" style="color: var(--text-title);">Analiz tipini ve parametreleri seçerek başlayın.</h4>
+                            <p class="text-muted small">Aynı cihaz üzerindeki farklı metriklerin birbirleriyle olan ilişkisini analiz edebilirsiniz.</p>
                         </div>
                     </div>
                 </div>`;
@@ -2527,7 +2541,7 @@
                 disks.forEach(d => {
                     container.innerHTML += `
                     <div class="form-check mb-1">
-                        <input class="form-check-input corr-check" type="checkbox" value="Disk_${d.diskName}" id="chkDisk_${d.id}">
+                        <input class="form-check-input corr-check" type="checkbox" value="Disk_${d.diskName}" id="chkDisk_${d.id}" onchange="ui.handleCorrMetricChange(this)">
                         <label class="form-check-label small" for="chkDisk_${d.id}">Disk ${d.diskName}</label>
                     </div>`;
                 });
@@ -2539,41 +2553,63 @@
             const isLine = mode === 'line';
 
             const info = document.getElementById('selection-limit-info');
-            if (info) info.innerText = isLine ? "(Sınırsız Seçim)" : "(Tam 2 Adet Seçin)";
+            if (info) info.innerText = isLine ? "(Sınırsız)" : "(Tam 2 Adet)";
 
             if (!isLine) {
                 const checked = document.querySelectorAll('.corr-check:checked');
-                if (checked.length > 2) checked.forEach(c => c.checked = false);
+                if (checked.length > 2) {
+                    checked.forEach(c => c.checked = false);
+                    ui.handleCorrMetricChange();
+                }
+            }
+        },
+
+        handleCorrMetricChange: (checkbox) => {
+            const checked = Array.from(document.querySelectorAll('.corr-check:checked'));
+            const countEl = document.getElementById('corr-selected-count');
+            const namesEl = document.getElementById('corr-selected-names');
+            const mode = document.getElementById('corr-type-select').value;
+
+            if (countEl) countEl.innerText = checked.length;
+            
+            if (namesEl) {
+                if (checked.length === 0) {
+                    namesEl.innerText = "Metrik Seçiniz...";
+                } else {
+                    const names = checked.map(c => {
+                        const labelEl = c.parentElement.querySelector('label');
+                        const label = labelEl ? labelEl.innerText : c.value;
+                        return label.split('(')[0].trim();
+                    }).join(', ');
+                    namesEl.innerText = names;
+                    namesEl.title = names;
+                }
+            }
+
+            // Scatter limit check
+            if (mode === 'scatter' && checked.length > 2) {
+                if (checkbox) checkbox.checked = false;
+                Swal.fire({ icon: 'info', text: 'Scatter Plot için tam 2 değer seçmelisiniz.', timer: 2000, showConfirmButton: false });
+                ui.handleCorrMetricChange(); // Recalculate
             }
         },
 
         initCorrelationPage: () => {
-            // Kullanıcı boş gelmesini istediği için hafızadan yüklemiyoruz
             const info = document.getElementById('selection-limit-info');
             if (info) info.innerText = "(Önce Tip Seçin)";
             ui.loadCorrelationComputers();
-
-            // Checkbox tıklama kontrolü (Scatter için maksimum 2)
-            document.addEventListener('change', (e) => {
-                if (e.target.classList.contains('corr-check')) {
-                    const currentMode = localStorage.getItem('corrMode') || 'line';
-                    if (currentMode === 'scatter') {
-                        const checked = document.querySelectorAll('.corr-check:checked');
-                        if (checked.length > 2) {
-                            e.target.checked = false;
-                            Swal.fire({ icon: 'info', text: 'Scatter plot için tam olarak 2 veri seçmelisiniz.', timer: 2000, showConfirmButton: false });
-                        }
-                    }
-                }
-            });
-
+            
             // Varsayılan tarihleri ayarla (Son 24 saat)
             const now = new Date();
             const yesterday = new Date(now.getTime() - (24 * 60 * 60 * 1000));
             const toISO = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-            document.getElementById('corr-start').value = toISO(yesterday);
-            document.getElementById('corr-end').value = toISO(now);
+            
+            const startEl = document.getElementById('corr-start');
+            const endEl = document.getElementById('corr-end');
+            if (startEl) startEl.value = toISO(yesterday);
+            if (endEl) endEl.value = toISO(now);
         },
+
 
         generateCorrelationAnalysis: async () => {
             const compId = document.getElementById('corr-computer-select').value;
@@ -2639,18 +2675,21 @@
 
                 const sortedKeys = Object.keys(timeMap).map(Number).sort((a, b) => a - b);
 
+                const trMonths = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+                const formatTrDate = (d) => {
+                    const pad = n => n.toString().padStart(2, '0');
+                    return `${d.getDate()} ${trMonths[d.getMonth()]} ${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}`;
+                };
+
                 if (mode === 'line') {
                     // --- ZAMAN SERİSİ (LINE CHART) ---
-                    const trMonths = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
-                    const formatTrDate = (d) => {
-                        const pad = n => n.toString().padStart(2, '0');
-                        return `${d.getDate()} ${trMonths[d.getMonth()]} ${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}`;
-                    };
+
                     const labels = sortedKeys.map(ts => {
                         const d1 = new Date(ts);
                         const d2 = new Date(maxTimeMap[ts] || ts);
                         return `${formatTrDate(d1)}-${formatTrDate(d2)} arası`;
                     });
+
                     const datasets = [];
 
                     checkedMetrics.forEach((cb, index) => {
@@ -2660,6 +2699,11 @@
                             return val !== undefined ? val.avg : null;
                         });
 
+                        const maxDataArray = sortedKeys.map(ts => {
+                            const val = timeMap[ts][metricKey];
+                            return val !== undefined ? val.max : null;
+                        });
+
                         let label = metricKey;
                         let color = '#0dcaf0';
                         let fill = false;
@@ -2667,15 +2711,17 @@
                         if (metricKey === "CPU") { color = '#0dcaf0'; fill = true; }
                         else if (metricKey === "RAM") { color = '#dc3545'; fill = true; }
                         else if (metricKey.startsWith("Disk_")) {
-                            label = `Disk ${metricKey.substring(5)} (%)`;
-                            color = index % 2 === 0 ? '#198754' : '#ffc107';
+                            label = `Disk ${metricKey.substring(5)}`;
+                            const diskColors = ['#198754', '#ffc107', '#fd7e14', '#6610f2', '#20c997'];
+                            color = diskColors[index % diskColors.length];
                         }
 
+                        // Ortalama Çizgisi
                         datasets.push({
-                            label: label,
+                            label: `${label} (Ortalama)`,
                             data: dataArray,
                             borderColor: color,
-                            backgroundColor: color + '20',
+                            backgroundColor: color + '22',
                             pointRadius: (ctx) => {
                                 const i = ctx.dataIndex;
                                 const data = ctx.dataset.data;
@@ -2685,7 +2731,25 @@
                             },
                             tension: 0,
                             fill: fill,
-                            spanGaps: false
+                            spanGaps: false,
+                            isMaxLine: false,
+                            metricKey: metricKey
+                        });
+
+                        // Maksimum Çizgisi (İnce ve Kesikli)
+                        datasets.push({
+                            label: `${label} (Maksimum)`,
+                            data: maxDataArray,
+                            borderColor: color,
+                            borderDash: [6, 4],
+                            borderWidth: 1.2,
+                            tension: 0,
+                            fill: false,
+                            spanGaps: false,
+                            pointRadius: 0,
+                            isMaxLine: true,
+                            opacity: 0.7,
+                            metricKey: metricKey
                         });
                     });
 
@@ -2696,10 +2760,47 @@
                             responsive: true, maintainAspectRatio: false,
                             interaction: { mode: 'index', intersect: false },
                             plugins: { 
-                                legend: { labels: { color: textColor } }
+                                legend: { labels: { color: textColor } },
+                                tooltip: {
+                                    backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                                    titleColor: isDarkMode ? '#f8fafc' : '#0f172a',
+                                    bodyColor: isDarkMode ? '#e2e8f0' : '#334155',
+                                    borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                                    borderWidth: 1,
+                                    padding: 12,
+                                    boxPadding: 6,
+                                    usePointStyle: true,
+                                    callbacks: {
+                                        title: (context) => context[0].label,
+                                        label: (context) => {
+                                            const dataset = context.dataset;
+                                            const ts = sortedKeys[context.dataIndex];
+                                            const valObj = timeMap[ts][dataset.metricKey];
+                                            
+                                            if (!valObj) return `${dataset.label}: Veri Yok`;
+                                            
+                                            if (dataset.isMaxLine) {
+                                                const ortalamaIndex = context.datasetIndex - 1;
+                                                if (context.chart.isDatasetVisible(ortalamaIndex)) return null;
+                                            }
+
+                                            const labelName = dataset.label.split('(')[0].trim();
+                                            return [
+                                                `${labelName}`,
+                                                `  • Ortalama: %${valObj.avg.toFixed(2)}`,
+                                                `  • Maksimum: %${valObj.max.toFixed(2)} (${formatTrDate(new Date(valObj.maxTime))})`,
+                                                `  • Minimum : %${valObj.min.toFixed(2)} (${formatTrDate(new Date(valObj.minTime))})`
+                                            ];
+                                        }
+                                    }
+                                }
                             },
                             scales: {
-                                y: { min: 0, max: 100, ticks: { color: textColor }, grid: { color: gridColor } },
+                                y: { 
+                                    min: 0, max: 100, 
+                                    ticks: { color: textColor, callback: (v) => '%' + v }, 
+                                    grid: { color: gridColor } 
+                                },
                                 x: { 
                                     ticks: { 
                                         color: textColor,
@@ -2736,7 +2837,7 @@
                             const xVal = xValObj.avg;
                             const yVal = yValObj.avg;
                             
-                            scatterData.push({ x: xVal, y: yVal });
+                            scatterData.push({ x: xVal, y: yVal, ts: ts });
 
                             // Trendline matematiği verileri
                             sumX += xVal;
@@ -2746,6 +2847,7 @@
                             n++;
                         }
                     });
+
 
                     // Trendline (En İyi Uyum Çizgisi) Hesaplaması
                     let trendlineData = [];
@@ -2798,13 +2900,37 @@
                             plugins: {
                                 legend: { labels: { color: textColor } },
                                 tooltip: {
+                                    backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                                    titleColor: isDarkMode ? '#f8fafc' : '#0f172a',
+                                    bodyColor: isDarkMode ? '#e2e8f0' : '#334155',
+                                    borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                                    borderWidth: 1,
+                                    padding: 12,
                                     callbacks: {
                                         label: (ctx) => {
                                             if (ctx.datasetIndex === 1) return 'Genel Eğilim Yönü';
-                                            return `${label1}: %${ctx.raw.x.toFixed(1)}, ${label2}: %${ctx.raw.y.toFixed(1)}`;
+                                            const dp = ctx.raw;
+                                            const valX = timeMap[dp.ts][metric1];
+                                            const valY = timeMap[dp.ts][metric2];
+                                            const dStart = new Date(dp.ts);
+                                            const dEnd = new Date(maxTimeMap[dp.ts] || dp.ts);
+                                            const rangeStr = `${formatTrDate(dStart)}-${formatTrDate(dEnd)}`;
+
+                                            return [
+                                                `${label1}:`,
+                                                `  • Ortalama: %${valX.avg.toFixed(2)} (${rangeStr})`,
+                                                `  • Minimum : %${valX.min.toFixed(2)} (${formatTrDate(new Date(valX.minTime))})`,
+                                                `  • Maksimum: %${valX.max.toFixed(2)} (${formatTrDate(new Date(valX.maxTime))})`,
+                                                ` `,
+                                                `${label2}:`,
+                                                `  • Ortalama: %${valY.avg.toFixed(2)} (${rangeStr})`,
+                                                `  • Minimum : %${valY.min.toFixed(2)} (${formatTrDate(new Date(valY.minTime))})`,
+                                                `  • Maksimum: %${valY.max.toFixed(2)} (${formatTrDate(new Date(valY.maxTime))})`
+                                            ];
                                         }
                                     }
                                 }
+
                             },
                             scales: {
                                 x: { title: { display: true, text: label1 + " (%)", color: textColor }, min: 0, max: 100, ticks: { color: textColor }, grid: { color: gridColor } },
