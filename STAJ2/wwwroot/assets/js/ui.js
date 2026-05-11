@@ -127,7 +127,36 @@
         }
     }
 
+    /**
+     * Butonlar için loading state yönetimi.
+     * @param {HTMLElement} btn - Tıklanan buton elementi
+     * @param {Function} action - Çalıştırılacak async fonksiyon
+     */
+    async function withLoading(btn, action) {
+        if (!btn || btn.disabled) return;
+        const originalContent = btn.innerHTML;
+        const originalWidth = btn.offsetWidth;
+        
+        btn.disabled = true;
+        // Genişlik kaymasını önlemek için sabitliyoruz
+        btn.style.width = (originalWidth + 2) + 'px'; // +2 for border/padding safety
+        btn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>`;
+        
+        try {
+            await action();
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalContent;
+            btn.style.width = '';
+        }
+    }
+
     async function switchView(view) {
+        // Sayfa değişirken bekleyen tüm backend isteklerini iptal et
+        if (window.api && typeof window.api.cancelAllRequests === 'function') {
+            window.api.cancelAllRequests();
+        }
+
         sessionStorage.setItem('lastActiveView', view);
 
         const content = document.getElementById('dynamic-content');
@@ -295,7 +324,7 @@
                                     <input type="datetime-local" id="historyEnd" class="form-control" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
                                 </div>
 
-                                <button class="btn btn-primary w-100 fw-bold shadow-sm mb-4" onclick="fetchHistoryMetrics()">
+                                <button class="btn btn-primary w-100 fw-bold shadow-sm mb-4" onclick="ui.withLoading(this, fetchHistoryMetrics)">
                                     <i class="bi bi-search me-2"></i> Getir ve Çiz
                                 </button>
 
@@ -384,7 +413,7 @@
                                     <label class="form-label fw-bold small mb-1" style="color:var(--text-muted);">BİTİŞ ZAMANI</label>
                                     <input type="datetime-local" id="logEnd" class="form-control" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
                                 </div>
-                                <button class="btn btn-primary w-100 fw-bold shadow-sm mb-4" onclick="ui.fetchLogManagementData()">
+                                <button class="btn btn-primary w-100 fw-bold shadow-sm mb-4" onclick="ui.withLoading(this, ui.fetchLogManagementData)">
                                     <i class="bi bi-search me-2"></i> Getir ve Çiz
                                 </button>
                                 <hr>
@@ -604,7 +633,7 @@
                         </div>
                     </div>
 
-                    <button class="btn btn-primary w-100 fw-bold shadow-sm" onclick="ui.generateThresholdReport()">
+                    <button class="btn btn-primary w-100 fw-bold shadow-sm" onclick="ui.withLoading(this, ui.generateThresholdReport)">
                         <i class="bi bi-bar-chart-line me-2"></i> Raporu Oluştur
                     </button>
                 </div>
@@ -667,8 +696,8 @@
                             <input type="date" id="warning-end" class="form-control form-control-sm" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
                         </div>
                         <div class="d-flex gap-1">
-                            <button class="btn btn-primary btn-sm fw-bold shadow-sm" onclick="window.fetchTopWarnings()"><i class="bi bi-filter"></i> Filtrele</button>
-                            <button class="btn btn-secondary btn-sm fw-bold shadow-sm" onclick="window.clearWarningFilters()"><i class="bi bi-eraser"></i> Temizle</button>
+                            <button class="btn btn-primary btn-sm fw-bold shadow-sm" onclick="ui.withLoading(this, () => window.fetchTopWarnings(true))"><i class="bi bi-filter"></i> Filtrele</button>
+                            <button class="btn btn-secondary btn-sm fw-bold shadow-sm" onclick="ui.withLoading(this, window.clearWarningFilters)"><i class="bi bi-eraser"></i> Temizle</button>
                         </div>
                     </div>
                 </div>
@@ -744,7 +773,7 @@
                                     <input type="date" id="heatmap-date" class="form-control" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
                                 </div>
 
-                                <button class="btn btn-warning w-100 fw-bold shadow-sm text-dark" onclick="ui.generateHeatmap()">
+                                <button class="btn btn-warning w-100 fw-bold shadow-sm text-dark" onclick="ui.withLoading(this, ui.generateHeatmap)">
                                     <i class="bi bi-grid-3x3 me-2"></i> Haritayı Çiz
                                 </button>
                             </div>
@@ -823,7 +852,7 @@
                                     </div>
                                 </div>
 
-                                <button class="btn btn-primary w-100 fw-bold shadow-sm" onclick="ui.generateCorrelationAnalysis()">
+                                <button class="btn btn-primary w-100 fw-bold shadow-sm" onclick="ui.withLoading(this, ui.generateCorrelationAnalysis)">
                                     <i class="bi bi-graph-up-arrow me-2"></i> Analizi Göster
                                 </button>
                             </div>
@@ -892,7 +921,7 @@
                                 </div>
 
                                 <div style="width: 150px;">
-                                    <button class="btn btn-success btn-sm w-100 fw-bold shadow-sm" onclick="ui.generateDeviceComparison()" style="height: 31px;">
+                                    <button class="btn btn-success btn-sm w-100 fw-bold shadow-sm" onclick="ui.withLoading(this, ui.generateDeviceComparison)" style="height: 31px;">
                                         <i class="bi bi-graph-up me-1"></i> Analiz Et
                                     </button>
                                 </div>
@@ -1042,7 +1071,7 @@
         logRenderIndex: 0,
         filterTimeout: null,
         show, hide, setText, backOrHome,
-        renderSidebar, switchView, toggleTheme,
+        renderSidebar, switchView, toggleTheme, withLoading,
 
         approveRequest: async (id) => {
             const result = await Swal.fire({
@@ -3566,13 +3595,18 @@
     window.warningPages = { cpu: 1, ram: 1, disk: 1 };
     const WARNING_ITEMS_PER_PAGE = 10; // Her sayfada gösterilecek cihaz sayısı
 
-    window.fetchTopWarnings = async function () {
+    window.fetchTopWarnings = async function (isManualFilter = false) {
         try {
             let url = '/api/agent-telemetry/top-warnings';
 
             // YENİ EKLENDİ: Eğer ekranda seçili tarih varsa query string olarak URL'ye ekle
             let start = document.getElementById('warning-start') ? document.getElementById('warning-start').value : null;
             let end = document.getElementById('warning-end') ? document.getElementById('warning-end').value : null;
+
+            if (isManualFilter && (!start || !end)) {
+                await Swal.fire({ title: 'Tarih Eksik', text: 'Lütfen filtreleme yapmak için her iki tarihi de seçiniz.', icon: 'warning' });
+                return;
+            }
 
             let queryParams = [];
             if (start) queryParams.push(`startDate=${start}`);
@@ -3604,10 +3638,10 @@
     };
 
     // YENİ EKLENDİ: Tarihleri temizleyen butonun fonksiyonu
-    window.clearWarningFilters = function () {
+    window.clearWarningFilters = async function () {
         if (document.getElementById('warning-start')) document.getElementById('warning-start').value = '';
         if (document.getElementById('warning-end')) document.getElementById('warning-end').value = '';
-        window.fetchTopWarnings();
+        await window.fetchTopWarnings();
     };
     window.showBreachChart = function (title, typeKey, diskName) {
         let breachesList = [];

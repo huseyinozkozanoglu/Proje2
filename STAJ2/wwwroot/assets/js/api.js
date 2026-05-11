@@ -1,4 +1,4 @@
-﻿// STAJ2/wwwroot/assets/js/api.js
+// STAJ2/wwwroot/assets/js/api.js
 (function () {
     // auth.js'teki metodumuzu kullanıyoruz ki her yerde aynı isimle okunsun
     function getToken() {
@@ -8,95 +8,114 @@
         return localStorage.getItem("staj2_token");
     }
 
+    let activeControllers = new Set();
     let isRefreshing = false;
     let refreshPromise = null;
 
     async function request(path, options = {}) {
-        const base = window.APP_CONFIG?.API_BASE ?? "";
-        const url = base + path;
+        const controller = new AbortController();
+        activeControllers.add(controller);
 
-        const headers = options.headers ? { ...options.headers } : {};
-        if (!headers["Content-Type"] && options.body) headers["Content-Type"] = "application/json";
+        try {
+            const base = window.APP_CONFIG?.API_BASE ?? "";
+            const url = base + path;
 
-        const token = getToken();
-        if (token) headers["Authorization"] = `Bearer ${token}`;
+            const headers = options.headers ? { ...options.headers } : {};
+            if (!headers["Content-Type"] && options.body) headers["Content-Type"] = "application/json";
 
-        let res = await fetch(url, { ...options, headers });
+            const token = getToken();
+            if (token) headers["Authorization"] = `Bearer ${token}`;
 
-        // --- REFRESH TOKEN BAŞLANGIÇ ---
-        if (res.status === 401 && !path.includes('/login')) {
-            const rfToken = localStorage.getItem("staj2_refresh_token");
+            // Sinyali fetch seçeneklerine ekliyoruz
+            let res = await fetch(url, { ...options, headers, signal: controller.signal });
 
-            if (rfToken) {
-                if (!isRefreshing) {
-                    isRefreshing = true;
-                    refreshPromise = new Promise(async (resolve, reject) => {
-                        try {
-                            const refreshRes = await fetch('/api/Auth/refresh', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ refreshToken: rfToken })
-                            });
-
-                            if (refreshRes.ok) {
-                                const newData = await refreshRes.json();
-                                window.auth.saveAuth(newData.token, null, null, null, newData.refreshToken);
-                                resolve(newData.token); // Yeni token'ı bekleyenlere dağıt
-                            } else {
-                                reject("Refresh işlemi reddedildi");
-                            }
-                        } catch (err) {
-                            reject(err);
-                        } finally {
-                            isRefreshing = false; // İşlem bitince kilidi aç
-                        }
-                    });
-                }
-
-                try {
-                    // AYNI ANDA 401 YİYEN TÜM İSTEKLER BURADA BEKLER
-                    const newToken = await refreshPromise;
-                    headers["Authorization"] = `Bearer ${newToken}`;
-                    res = await fetch(url, { ...options, headers });
-                } catch (err) {
-                    console.error("Token yenileme kuyruğunda hata:", err);
-                }
-            }
-        }
-        // --- REFRESH TOKEN BİTİŞ ---
-
-        // Yanıtı Parse Etme
-        const contentType = res.headers.get("content-type") || "";
-        const isJson = contentType.includes("application/json");
-        const data = isJson ? await res.json().catch(() => null) : await res.text().catch(() => "");
-
-        // Hata durumunda Error Objesi Fırlatma
-        if (!res.ok) {
-            // Tamamen API'den gelen veriye güveniyoruz
-            const errTitle = data?.title;
-            const errMsg = (typeof data === "string" && data) ? data
-                : data?.errorMessage ? data.errorMessage
-                    : data?.message;
-
+            // --- REFRESH TOKEN BAŞLANGIÇ ---
             if (res.status === 401 && !path.includes('/login')) {
-                await Swal.fire({ title: errTitle, text: errMsg, icon: 'info' });
-                window.auth.clearAuth();
-                window.location.href = "/login.html?reason=expired";
-                throw { title: errTitle, message: errMsg, isHandled: true };
+                const rfToken = localStorage.getItem("staj2_refresh_token");
+
+                if (rfToken) {
+                    if (!isRefreshing) {
+                        isRefreshing = true;
+                        refreshPromise = new Promise(async (resolve, reject) => {
+                            try {
+                                const refreshRes = await fetch('/api/Auth/refresh', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ refreshToken: rfToken }),
+                                    signal: controller.signal
+                                });
+
+                                if (refreshRes.ok) {
+                                    const newData = await refreshRes.json();
+                                    window.auth.saveAuth(newData.token, null, null, null, newData.refreshToken);
+                                    resolve(newData.token);
+                                } else {
+                                    reject("Refresh işlemi reddedildi");
+                                }
+                            } catch (err) {
+                                reject(err);
+                            } finally {
+                                isRefreshing = false;
+                            }
+                        });
+                    }
+
+                    try {
+                        const newToken = await refreshPromise;
+                        headers["Authorization"] = `Bearer ${newToken}`;
+                        res = await fetch(url, { ...options, headers, signal: controller.signal });
+                    } catch (err) {
+                        console.error("Token yenileme kuyruğunda hata:", err);
+                    }
+                }
+            }
+            // --- REFRESH TOKEN BİTİŞ ---
+
+            // Yanıtı Parse Etme
+            const contentType = res.headers.get("content-type") || "";
+            const isJson = contentType.includes("application/json");
+            const data = isJson ? await res.json().catch(() => null) : await res.text().catch(() => "");
+
+            // Hata durumunda Error Objesi Fırlatma
+            if (!res.ok) {
+                const errTitle = data?.title;
+                const errMsg = (typeof data === "string" && data) ? data
+                    : data?.errorMessage ? data.errorMessage
+                        : data?.message;
+
+                if (res.status === 401 && !path.includes('/login')) {
+                    await Swal.fire({ title: errTitle, text: errMsg, icon: 'info' });
+                    window.auth.clearAuth();
+                    window.location.href = "/login.html?reason=expired";
+                    throw { title: errTitle, message: errMsg, isHandled: true };
+                }
+
+                if (res.status === 403 && !path.includes('/login')) {
+                    await Swal.fire({ title: errTitle, text: errMsg, icon: 'error' });
+                    window.auth.clearAuth();
+                    window.location.href = "/login.html?reason=forbidden";
+                    throw { title: errTitle, message: errMsg, isHandled: true };
+                }
+
+                throw { title: errTitle, message: errMsg };
             }
 
-            if (res.status === 403 && !path.includes('/login')) {
-                await Swal.fire({ title: errTitle, text: errMsg, icon: 'error' });
-                window.auth.clearAuth();
-                window.location.href = "/login.html?reason=forbidden";
-                throw { title: errTitle, message: errMsg, isHandled: true };
+            return data;
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                console.log("İstek iptal edildi:", path);
+                return new Promise(() => { }); // İsteği sessizce sonlandır
             }
-
-            // Normal bir hata döndürüyoruz.
-            throw { title: errTitle, message: errMsg };
+            throw error;
+        } finally {
+            activeControllers.delete(controller);
         }
+    }
 
-        return data;
+    function cancelAllRequests() {
+        activeControllers.forEach(ctrl => ctrl.abort());
+        activeControllers.clear();
+        console.log("Tüm aktif backend istekleri iptal edildi.");
     }
 
     // Cihazın disklerini ve mevcut eşiklerini getirir
@@ -176,6 +195,7 @@
         openThresholdSettings: openThresholdSettings,
         saveThresholds: saveThresholds,
 
-        getPerformanceReport: () => request('/api/Computer/performance-report')
+        getPerformanceReport: () => request('/api/Computer/performance-report'),
+        cancelAllRequests: cancelAllRequests
     };
 })();
