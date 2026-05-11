@@ -711,7 +711,8 @@ function createBandChart(canvasId, labelText, labels, avgData, minData, maxData,
             let gapStartIdx = null;
 
             for (let i = 0; i < data.length; i++) {
-                if (data[i] === null || data[i] === undefined) {
+                const val = (data[i] !== null && typeof data[i] === 'object') ? data[i].y : data[i];
+                if (val === null || val === undefined) {
                     if (gapStartIdx === null) gapStartIdx = i;
                 } else {
                     if (gapStartIdx !== null) {
@@ -884,12 +885,12 @@ function createBandChart(canvasId, labelText, labels, avgData, minData, maxData,
                         // Gap noktasına (null değerli) tıklanmışsa drill-down açma
                         if (dData[index] && dData[index].usedAvg == null) return;
                         startTime = dData[index].createdAt;
-                        endTime = (index < dData.length - 1) ? dData[index + 1].createdAt : new Date(new Date(startTime).getTime() + 60000).toISOString();
+                        endTime = (index < dData.length - 1) ? dData[index + 1].createdAt : (tEndData && tEndData[index] ? new Date(tEndData[index]).toISOString() : new Date(new Date(startTime).getTime() + 60000).toISOString());
                     } else {
                         // Gap noktasına (null değerli) tıklanmışsa drill-down açma
                         if (currentHistoryData.cpuRam[index] && currentHistoryData.cpuRam[index].cpuAvg == null) return;
                         startTime = currentHistoryData.cpuRam[index].createdAt;
-                        endTime = (index < currentHistoryData.cpuRam.length - 1) ? currentHistoryData.cpuRam[index + 1].createdAt : new Date(new Date(startTime).getTime() + 60000).toISOString();
+                        endTime = (index < currentHistoryData.cpuRam.length - 1) ? currentHistoryData.cpuRam[index + 1].createdAt : (tEndData && tEndData[index] ? new Date(tEndData[index]).toISOString() : new Date(new Date(startTime).getTime() + 60000).toISOString());
                     }
 
                     window.openBucketDetail(startTime, endTime, labelText, diskName);
@@ -902,7 +903,7 @@ function createBandChart(canvasId, labelText, labels, avgData, minData, maxData,
             plugins: {
                 zoom: isDrillDown ? {
                     limits: {
-                        x: { min: -0.5, max: labels.length - 0.5, minRange: 1 }
+                        x: { min: 0, max: labels.length > 0 ? labels.length - 1 : 0, minRange: 1 }
                     },
                     zoom: {
                         wheel: { enabled: true },
@@ -1033,7 +1034,7 @@ function createBandChart(canvasId, labelText, labels, avgData, minData, maxData,
                             let infoLines = ['─────────────────────', '⏻ Sonraki Çevrimdışı Bölge:'];
 
                             if (cutOffRaw) {
-                                infoLines.push('  Kesilme: ' + formatDetailedDate(cutOffRaw.createdAt));
+                                infoLines.push('  Kesilme: ' + formatDetailedDate(getBucketEndTime(cutOffRaw)));
                             }
                             if (resumeRaw) {
                                 infoLines.push('  Geri gelme: ' + formatDetailedDate(resumeRaw.createdAt));
@@ -1121,8 +1122,8 @@ function createBandChart(canvasId, labelText, labels, avgData, minData, maxData,
                 x: { 
                     type: isDrillDown ? 'linear' : undefined, // Issue 3: Overlap önlemek için linear scale kullan
                     offset: false,
-                    min: isDrillDown ? -0.5 : undefined,
-                    max: isDrillDown ? labels.length - 0.5 : undefined,
+                    min: isDrillDown ? 0 : undefined,
+                    max: isDrillDown ? (labels.length > 0 ? labels.length - 1 : 0) : undefined,
                     ticks: { 
                         color: textColor, 
                         maxTicksLimit: 10,
@@ -1428,8 +1429,8 @@ function createCandleChart(canvasId, labelText, candleData, labels, diskName = n
                 x: {
                     type: 'linear',
                     offset: false, // Issue 2: Kenar boşluklarını kaldır
-                    min: -0.5,
-                    max: labels.length - 0.5,
+                    min: 0,
+                    max: labels.length > 0 ? labels.length - 1 : 0,
                     ticks: {
                         color: textColor,
                         maxTicksLimit: 10,
@@ -1448,8 +1449,8 @@ function createCandleChart(canvasId, labelText, candleData, labels, diskName = n
                 zoom: isDrillDown ? {
                     limits: {
                         x: {
-                            min: -0.5,
-                            max: labels.length > 0 ? labels.length - 0.5 : undefined,
+                            min: 0,
+                            max: labels.length > 0 ? labels.length - 1 : 0,
                             minRange: 1
                         }
                     },

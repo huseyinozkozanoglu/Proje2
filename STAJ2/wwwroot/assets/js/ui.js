@@ -3008,7 +3008,7 @@
                         if (res.cpuRam) {
                             res.cpuRam.forEach(m => {
                                 if (!m.createdAt) return;
-                                const ts = new Date(m.createdAt).setSeconds(0, 0);
+                                const ts = new Date(m.createdAt).getTime();
                                 timeSet.add(ts);
                                 deviceDataMap[compId].values[ts] = metric === "CPU" ? 
                                     { avg: m.cpuAvg, min: m.cpuMin, max: m.cpuMax, minTime: m.cpuMinTime, maxTime: m.cpuMaxTime } : 
@@ -3021,7 +3021,7 @@
                         if (res.disks) {
                             res.disks.forEach(d => {
                                 if (!d.createdAt || d.diskName !== targetDiskName) return;
-                                const ts = new Date(d.createdAt).setSeconds(0, 0);
+                                const ts = new Date(d.createdAt).getTime();
                                 timeSet.add(ts);
                                 deviceDataMap[compId].values[ts] = { avg: d.usedAvg, min: d.usedMin, max: d.usedMax, minTime: d.usedMinTime, maxTime: d.usedMaxTime };
                                 maxTimeMap[ts] = Math.max(maxTimeMap[ts] || 0, new Date(d.maxCreatedAt || d.createdAt).getTime());
@@ -3281,7 +3281,8 @@
                                             const part = label.split('-')[0].trim();
                                             const parts = part.split(' ');
                                             if (parts.length >= 3) {
-                                                return parts[2]; // Sadece Saat.Dakika.Saniye kısmı
+                                                // "7 Mayıs 15.30.00" -> "7 Mayıs 15.30"
+                                                return parts[0] + ' ' + parts[1] + ' ' + parts[2].substring(0, 5);
                                             }
                                             return part;
                                         }
