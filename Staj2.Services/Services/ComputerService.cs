@@ -208,7 +208,7 @@ public class ComputerService : BaseService, IComputerService
         return ServiceResult<object>.Success(processed);
     }
 
-    public async Task<ServiceResult<object>> GetMetricsHistoryBatchAsync(List<int> ids, string start, string end, int? maxPoints = null)
+    public async Task<ServiceResult<object>> GetMetricsHistoryBatchAsync(List<int> ids, string start, string end, string metric, int? maxPoints = null)
     {
         if (ids == null || !ids.Any()) return ServiceResult<object>.Failure("Lütfen cihaz seçiniz.");
         if (string.IsNullOrWhiteSpace(start) || string.IsNullOrWhiteSpace(end)) return ServiceResult<object>.Failure("Lütfen tarih aralığı seçiniz.");
@@ -229,56 +229,31 @@ public class ComputerService : BaseService, IComputerService
             // NOT: "AppDbContext" yazan yere kendi Context adınızı yazın (örn: StajDbContext)
             var localDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            // 1. O cihaza ait CPU verilerini getir
-            var cpuBuckets = await localDb.ComputerMetrics
-                .AsNoTracking()
-                .Where(m => m.ComputerId == id && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
-                .GroupBy(m => EF.Functions.DateDiffSecond(startTime, m.CreatedAt) / bucketSeconds)
-                .Select(g => new
-                {
-                    BucketIndex = g.Key,
-                    MaxCreatedAt = g.Max(m => m.CreatedAt),
-                    CpuAvg = Math.Round(g.Average(m => m.CpuUsage), 2),
-                    CpuMin = Math.Round(g.Min(m => m.CpuUsage), 2),
-                    CpuMax = Math.Round(g.Max(m => m.CpuUsage), 2),
-                    RamAvg = Math.Round(g.Average(m => m.RamUsage), 2),
-                    RamMin = Math.Round(g.Min(m => m.RamUsage), 2),
-                    RamMax = Math.Round(g.Max(m => m.RamUsage), 2)
-                })
-                .ToListAsync();
+            List<(DateTime CreatedAt, double CpuUsage, double RamUsage)> rawCpuRam = new();
+            List<(DateTime CreatedAt, double UsedPercent, string diskName)> rawDisks = new();
 
-            // 2. O cihaza ait Disk verilerini getir
-            var diskBuckets = await localDb.DiskMetrics
-                .AsNoTracking()
-                .Where(m => m.ComputerDisk.ComputerId == id && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
-                .GroupBy(m => new {
-                    DiskName = m.ComputerDisk.DiskName,
-                    BucketIndex = EF.Functions.DateDiffSecond(startTime, m.CreatedAt) / bucketSeconds
-                })
-                .Select(g => new
-                {
-                    DiskName = g.Key.DiskName,
-                    BucketIndex = g.Key.BucketIndex,
-                    MaxCreatedAt = g.Max(m => m.CreatedAt),
-                    UsedAvg = Math.Round(g.Average(m => m.UsedPercent), 2),
-                    UsedMin = Math.Round(g.Min(m => m.UsedPercent), 2),
-                    UsedMax = Math.Round(g.Max(m => m.UsedPercent), 2)
-                })
-                .ToListAsync();
-
-            // 3. Gap Injection (Eksik verileri null ile doldurma)
-            var finalCpuRam = FillCpuGapsForBatch(cpuBuckets, startTime, bucketSeconds, maxAllowedPoints);
-
-            var finalDisks = new List<DiskBucketDto>();
-            var diskNames = diskBuckets.Select(d => d.DiskName).Distinct();
-            foreach (var dn in diskNames)
+            if (metric == "CPU" || metric == "RAM")
             {
-                var specificDiskData = diskBuckets.Where(d => d.DiskName == dn).ToList();
-                finalDisks.AddRange(FillDiskGapsForBatch(specificDiskData, dn, startTime, bucketSeconds, maxAllowedPoints));
+                var dbCpuRam = await localDb.ComputerMetrics
+                    .AsNoTracking()
+                    .Where(m => m.ComputerId == id && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+                    .Select(m => new { m.CreatedAt, m.CpuUsage, m.RamUsage })
+                    .ToListAsync();
+                rawCpuRam = dbCpuRam.Select(m => (m.CreatedAt, m.CpuUsage, m.RamUsage)).ToList();
+            }
+            else if (metric.StartsWith("Disk_"))
+            {
+                string targetDisk = metric.Substring(5);
+                var dbDisks = await localDb.DiskMetrics
+                    .AsNoTracking()
+                    .Where(m => m.ComputerDisk.ComputerId == id && m.ComputerDisk.DiskName == targetDisk && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+                    .Select(m => new { m.CreatedAt, m.UsedPercent, m.ComputerDisk.DiskName })
+                    .ToListAsync();
+                rawDisks = dbDisks.Select(m => (m.CreatedAt, m.UsedPercent, m.DiskName)).ToList();
             }
 
-            // Görev sonucunu id ile birlikte dönüyoruz
-            return new { ComputerId = id, Data = new { CpuRam = finalCpuRam, Disks = finalDisks } };
+            var processed = ProcessSingleComputerMetrics(rawCpuRam, rawDisks, startTime, endTime, maxAllowedPoints);
+            return new { ComputerId = id, Data = processed };
         });
 
         // BÜYÜK FARK BURADA: Tüm görevleri (cihazları) AYNI ANDA çalıştır ve hepsinin bitmesini bekle
@@ -307,12 +282,16 @@ public class ComputerService : BaseService, IComputerService
                     MaxCreatedAt = data.MaxCreatedAt,
                     CpuAvg = data.CpuAvg,
                     CpuMin = data.CpuMin,
+                    CpuMinTime = data.CpuMinTime,
                     CpuMax = data.CpuMax,
+                    CpuMaxTime = data.CpuMaxTime,
                     CpuOpen = data.CpuAvg,
                     CpuClose = data.CpuAvg,
                     RamAvg = data.RamAvg,
                     RamMin = data.RamMin,
+                    RamMinTime = data.RamMinTime,
                     RamMax = data.RamMax,
+                    RamMaxTime = data.RamMaxTime,
                     RamOpen = data.RamAvg,
                     RamClose = data.RamAvg
                 });
@@ -355,7 +334,9 @@ public class ComputerService : BaseService, IComputerService
                     DiskName = diskName,
                     UsedAvg = data.UsedAvg,
                     UsedMin = data.UsedMin,
+                    UsedMinTime = data.UsedMinTime,
                     UsedMax = data.UsedMax,
+                    UsedMaxTime = data.UsedMaxTime,
                     UsedOpen = data.UsedAvg,
                     UsedClose = data.UsedAvg
                 });

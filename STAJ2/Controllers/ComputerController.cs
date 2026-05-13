@@ -130,12 +130,12 @@ public class ComputerController : ControllerBase
 
     [HttpGet("metrics-history-batch")]
     [HasPermission(AppPermissions.Computer_Read)]
-    public async Task<IActionResult> GetMetricsHistoryBatch([FromQuery] string ids, [FromQuery] string? start, [FromQuery] string? end, [FromQuery] int? maxPoints = null)
+    public async Task<IActionResult> GetMetricsHistoryBatch([FromQuery] string ids, [FromQuery] string? start, [FromQuery] string? end, [FromQuery] string metric, [FromQuery] int? maxPoints = null)
     {
         if (string.IsNullOrEmpty(ids)) return BadRequest(new { message = "Cihaz ID'leri boş olamaz." });
         
         var idList = ids.Split(',').Select(int.Parse).ToList();
-        var result = await _computerService.GetMetricsHistoryBatchAsync(idList, start, end, maxPoints);
+        var result = await _computerService.GetMetricsHistoryBatchAsync(idList, start, end, metric, maxPoints);
 
         if (!result.IsSuccess)
             return BadRequest(new { message = result.Message, title = "Uyarı" });

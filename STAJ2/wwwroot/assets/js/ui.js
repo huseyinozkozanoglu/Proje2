@@ -3168,7 +3168,7 @@
                 // Fetch batch data
                 const ids = checkedComputers.map(c => c.value).join(',');
                 Swal.fire({ title: 'Veriler Yükleniyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
-                const batchResult = await api.get(`/api/Computer/metrics-history-batch?ids=${ids}&start=${start}&end=${end}`);
+                const batchResult = await api.get(`/api/Computer/metrics-history-batch?ids=${ids}&start=${start}&end=${end}&metric=${metric}`);
                 Swal.close();
 
                 checkedComputers.forEach((c, index) => {

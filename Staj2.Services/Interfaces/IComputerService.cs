@@ -27,7 +27,7 @@ public interface IComputerService
     // 6. Metrik Geçmişi
     // Eskiden: Task<(bool isBadRequest, string? errorMessage, object? data)>
     Task<ServiceResult<object>> GetMetricsHistoryAsync(int id, string start, string end, int? maxPoints = null);
-    Task<ServiceResult<object>> GetMetricsHistoryBatchAsync(List<int> ids, string start, string end, int? maxPoints = null);
+    Task<ServiceResult<object>> GetMetricsHistoryBatchAsync(List<int> ids, string start, string end, string metric, int? maxPoints = null);
 
     // 7. Tüm Cihazları Getir
     // Eskiden: Task<object>
