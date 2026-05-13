@@ -51,4 +51,14 @@ public interface IComputerService
     Task<ServiceResult<object>> GetMetricsTrendDataAsync(int computerId, string metricType, string? diskName);
     Task<ServiceResult<ThresholdAnalysisReportDto>> GetThresholdAnalysisAsync(int computerId, ThresholdReportRequestDto request);
     Task<ServiceResult<object>> GetLogManagementDataAsync(int computerId, string start, string end, int userId, bool isAdmin);
+
+    // 14. CSV Log Dışa Aktarma (Streaming)
+    Task ExportLogsCsvAsync(int computerId, string start, string end, int userId, bool isAdmin, StreamWriter writer);
+
+    // 15. Log Sayısını Getir
+    Task<ServiceResult<int>> GetLogCountAsync(int computerId, string start, string end, int userId, bool isAdmin);
+
+    // 16. Güvenli İndirme İçin Geçici Token Oluştur
+    Task<string> GenerateExportTokenAsync(int computerId, string start, string end, int userId, bool isAdmin);
+    Task<ExportTokenParams?> GetExportParamsAsync(string token);
 }

@@ -1,4 +1,4 @@
-﻿// STAJ2/Seed/DbSeeder.cs
+// STAJ2/Seed/DbSeeder.cs
 using Microsoft.EntityFrameworkCore;
 using Staj2.Domain.Entities;
 using Staj2.Infrastructure.Data;
@@ -99,23 +99,62 @@ public static class DbSeeder
             Console.WriteLine(">>> Yönetici rolüne tüm sistem yetkileri (Permissions) atandı.");
         }
 
-        // --- 5. MENÜLERİ OLUŞTUR (RequiredPermissionId ALANI SİLİNDİ) ---
-        if (!await context.SidebarItems.AnyAsync())
+        // --- 5. MENÜLERİ OLUŞTUR (HİYERARŞİK YAPI) ---
+        var sidebarItems = new List<SidebarItem>
         {
-            var sidebarItems = new List<SidebarItem>
+            new SidebarItem { Title = "Canlı İzleme", Icon = "bi bi-activity text-success", TargetView = "computers", OrderIndex = 1 },
+            new SidebarItem { Title = "Tüm Bilgisayarlar", Icon = "bi bi-pc-display", TargetView = "all-computers", OrderIndex = 2 },
+            new SidebarItem { Title = "Kayıt İstekleri", Icon = "bi bi-envelope-paper", TargetView = "requests", OrderIndex = 3 },
+            new SidebarItem { Title = "Kullanıcılar", Icon = "bi bi-people", TargetView = "users", OrderIndex = 4 },
+            new SidebarItem { Title = "Roller ve Yetkiler", Icon = "bi bi-shield-lock", TargetView = "roles", OrderIndex = 5 },
+            new SidebarItem { Title = "Etiketler", Icon = "bi bi-tags", TargetView = "tags", OrderIndex = 6 },
+            
+            // YENİ: Raporlama Üst Menüsü
+            new SidebarItem { Title = "Raporlama İşlemleri", Icon = "bi bi-bar-chart-line text-info", TargetView = "reports-parent", OrderIndex = 7 }
+        };
+
+        foreach (var item in sidebarItems)
+        {
+            if (!await context.SidebarItems.AnyAsync(s => s.TargetView == item.TargetView))
             {
-                new SidebarItem { Title = "Canlı İzleme", Icon = "bi bi-activity text-success", TargetView = "computers", OrderIndex = 1 },
-                new SidebarItem { Title = "Tüm Bilgisayarlar", Icon = "bi bi-pc-display", TargetView = "all-computers", OrderIndex = 2 },
-                new SidebarItem { Title = "Kayıt İstekleri", Icon = "bi bi-envelope-paper", TargetView = "requests", OrderIndex = 3 },
-                new SidebarItem { Title = "Kullanıcılar", Icon = "bi bi-people", TargetView = "users", OrderIndex = 4 },
-                new SidebarItem { Title = "Roller ve Yetkiler", Icon = "bi bi-shield-lock", TargetView = "roles", OrderIndex = 5 },
-                new SidebarItem { Title = "Etiketler", Icon = "bi bi-tags", TargetView = "tags", OrderIndex = 6 },
-                new SidebarItem { Title = "Raporlar", Icon = "bi bi-graph-up-arrow text-info",TargetView = "reports", OrderIndex = 7}
+                context.SidebarItems.Add(item);
+            }
+        }
+        await context.SaveChangesAsync();
+
+        // Alt Menüleri Ekle
+        var parentMenu = await context.SidebarItems.FirstOrDefaultAsync(s => s.TargetView == "reports-parent");
+        if (parentMenu != null)
+        {
+            var childItems = new List<SidebarItem>
+            {
+                new SidebarItem { Title = "Genel Raporlar", Icon = "bi bi-graph-up", TargetView = "reports", ParentId = parentMenu.Id, OrderIndex = 1 },
+                new SidebarItem { Title = "Geçmiş Metrikler", Icon = "bi bi-clock-history", TargetView = "history", ParentId = parentMenu.Id, OrderIndex = 2 },
+                new SidebarItem { Title = "Log Yönetimi", Icon = "bi bi-journal-text", TargetView = "log-management", ParentId = parentMenu.Id, OrderIndex = 3 },
+                new SidebarItem { Title = "Eşik Analiz Raporu", Icon = "bi bi-exclamation-octagon", TargetView = "threshold-analysis", ParentId = parentMenu.Id, OrderIndex = 4 },
+                new SidebarItem { Title = "Uyarı Raporları", Icon = "bi bi-megaphone", TargetView = "warnings", ParentId = parentMenu.Id, OrderIndex = 5 },
+                new SidebarItem { Title = "Heatmap Analizi", Icon = "bi bi-grid-3x3", TargetView = "heatmap", ParentId = parentMenu.Id, OrderIndex = 6 }
             };
 
-            context.SidebarItems.AddRange(sidebarItems);
+            foreach (var child in childItems)
+            {
+                if (!await context.SidebarItems.AnyAsync(s => s.TargetView == child.TargetView))
+                {
+                    context.SidebarItems.Add(child);
+                }
+                else
+                {
+                    // Varsa ParentId'sini güncelle (Eski verileri yeni yapıya taşımak için)
+                    var existing = await context.SidebarItems.FirstOrDefaultAsync(s => s.TargetView == child.TargetView);
+                    if (existing != null && existing.ParentId != parentMenu.Id)
+                    {
+                        existing.ParentId = parentMenu.Id;
+                        existing.Title = child.Title;
+                        existing.Icon = child.Icon;
+                    }
+                }
+            }
             await context.SaveChangesAsync();
-            Console.WriteLine(">>> Dinamik Sidebar menü elemanları oluşturuldu.");
         }
 
         // --- 6. TERSİNE İLİŞKİ: HANGİ YETKİ HANGİ MENÜYÜ AÇAR? ---
@@ -126,13 +165,16 @@ public static class DbSeeder
         var permissionToSidebarMappings = new Dictionary<string, string>
         {
             { "User.Manage", "requests" },
-            // --- KULLANICILAR MENÜSÜNÜ AÇACAK YETKİLER ---
             { "User.Read", "users" },
             { "User.ManageRoles", "users" },
             { "User.ManageComputers", "users" },
             { "User.ManageTags", "users" },
             { "Role.Manage", "roles" },
-            { "Tag.Manage", "tags" }
+            { "Tag.Manage", "tags" },
+            
+            // YENİ: Raporlama yetkisi (Sadece Parent'ı bağlamamız yeterli, 
+            // UiService çocuklar için otomatik yetki kontrolü yapacak)
+            { "Computer.Read", "reports-parent" }
         };
 
         foreach (var mapping in permissionToSidebarMappings)
@@ -142,13 +184,40 @@ public static class DbSeeder
 
             if (permission != null && targetMenu != null)
             {
+                // Bir yetki birden fazla menüye bağlanamaz (mevcut modelde SidebarItemId tekil)
+                // Ama biz burada her menü için yetki kontrolü yapıyoruz.
+                // Not: Eğer bir yetki zaten bir menüye bağlıysa, başka bir yetki de aynı menüye bağlanabilir.
+                // Ama burada biz yetki üzerinden gidiyoruz.
+                // Eğer Computer.Read yetkisi varsa, tüm raporları açmalı.
+                
+                // SidebarItems tablosunda korumalı olanları işaretlemek için Permission tablosundaki SidebarItemId'leri kullanıyoruz.
+                // Eğer bir menü ID'si Permission tablosunda SidebarItemId olarak varsa, o menü korumalıdır.
+                
                 if (permission.SidebarItemId != targetMenu.Id)
                 {
-                    permission.SidebarItemId = targetMenu.Id;
-                    isSidebarUpdated = true;
+                    // Dikkat: Computer.Read gibi genel bir yetkiyi birden fazla menüye bağlayamayız (Permission tablosunda SidebarItemId tekil).
+                    // Bu yüzden yeni bir yaklaşım gerekebilir veya Computer.Read sadece Parent'ı açar, 
+                    // Çocuklar için Permission tablosuna yeni kayıtlar mı eklemeliyiz? 
+                    // Hayır, kullanıcı "Computer.Read yetkisi varsa görebilecek" dedi.
                 }
             }
         }
+        
+        // KRİTİK: Computer.Read yetkisini Raporlama Üst Menüsüne bağla
+        var compReadPerm = await context.Permissions.FirstOrDefaultAsync(p => p.Name == "Computer.Read");
+        var reportMenu = await context.SidebarItems.FirstOrDefaultAsync(s => s.TargetView == "reports-parent");
+        if (compReadPerm != null && reportMenu != null)
+        {
+            compReadPerm.SidebarItemId = reportMenu.Id;
+            isSidebarUpdated = true;
+        }
+
+        // Alt menüleri de korumalı yapmak için onları da bir yetkiye bağlamalıyız.
+        // Eğer Computer.Read yetkisi tüm raporları açacaksa, alt menüleri de bu yetkiye bağlayalım.
+        // Ancak modelimiz 1 Permission -> 1 SidebarItem şeklinde.
+        // Bu kısıtlamayı aşmak için alt menüleri de korumalı listesine manuel ekleyebiliriz veya
+        // Permission tablosuna her biri için kayıt açabiliriz. 
+        // Ama kullanıcı "Computer.Read varsa görsün" dediği için kod tarafında bunu handle etmek daha mantıklı.
 
         if (isSidebarUpdated)
         {

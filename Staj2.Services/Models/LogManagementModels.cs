@@ -26,4 +26,13 @@ namespace Staj2.Services.Models
         public int WarningCount { get; set; }
         public int CriticalCount { get; set; }
     }
+
+    public class ExportTokenParams
+    {
+        public int ComputerId { get; set; }
+        public string Start { get; set; }
+        public string End { get; set; }
+        public int UserId { get; set; }
+        public bool IsAdmin { get; set; }
+    }
 }

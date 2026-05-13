@@ -1384,4 +1384,170 @@ public class ComputerService : BaseService, IComputerService
 
         return ServiceResult<object>.Success(result);
     }
+
+    // 14. CSV Log Dışa Aktarma - Streaming (JSON yerine doğrudan CSV yazarak büyük veri setlerini destekler)
+    public async Task ExportLogsCsvAsync(int computerId, string start, string end, int userId, bool isAdmin, StreamWriter writer)
+    {
+        if (!await CheckComputerAccessAsync(computerId, userId, isAdmin))
+            throw new UnauthorizedAccessException("Bu cihaza erişim yetkiniz bulunmamaktadır.");
+
+        if (!DateTime.TryParse(start, out DateTime startTime) || !DateTime.TryParse(end, out DateTime endTime))
+            throw new ArgumentException("Geçersiz tarih formatı.");
+
+        var computer = await _db.Computers.Include(c => c.Disks).AsNoTracking().FirstOrDefaultAsync(c => c.Id == computerId);
+        if (computer == null) throw new KeyNotFoundException("Cihaz bulunamadı.");
+
+        // Uyarı loglarını çek (bunlar genelde azdır)
+        var warningLogs = await _db.MetricWarningLogs
+            .AsNoTracking()
+            .Where(w => w.ComputerId == computerId && w.CreatedAt >= startTime && w.CreatedAt <= endTime)
+            .ToListAsync();
+
+        var warningLookup = warningLogs
+            .GroupBy(w => $"{w.MetricTypeId}_{w.ComputerDiskId}_{(long)(w.CreatedAt.Ticks / 10000000)}")
+            .ToDictionary(g => g.Key, g => g.First());
+
+        // CSV Başlık
+        await writer.WriteLineAsync("Zaman Damgası;Seviye;Metrik;Değer (%);Sınır (%);Detay / Mesaj");
+
+        // CPU/RAM Metriklerini parça parça işle (50K'lık gruplar)
+        const int batchSize = 50000;
+        int skip = 0;
+        bool hasMore = true;
+
+        while (hasMore)
+        {
+            var batch = await _db.ComputerMetrics
+                .AsNoTracking()
+                .Where(m => m.ComputerId == computerId && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+                .OrderByDescending(m => m.CreatedAt)
+                .Skip(skip)
+                .Take(batchSize)
+                .ToListAsync();
+
+            if (batch.Count == 0) break;
+            hasMore = batch.Count == batchSize;
+            skip += batch.Count;
+
+            foreach (var m in batch)
+            {
+                long ts = m.CreatedAt.Ticks / 10000000;
+                string timeStr = m.CreatedAt.ToString("dd.MM.yyyy HH:mm:ss");
+
+                // CPU
+                if (warningLookup.TryGetValue($"1__{ts}", out var cpuWarn))
+                {
+                    string level = cpuWarn.MetricValue >= 95 ? "Critical" : "Warning";
+                    await writer.WriteLineAsync($"{timeStr};{level};CPU;{Math.Round((double)m.CpuUsage, 1)};{cpuWarn.ThresholdValue};\"CPU kullanımı %{m.CpuUsage:F1} seviyesine ulaştı. (Sınır: %{cpuWarn.ThresholdValue})\"");
+                }
+                else
+                {
+                    await writer.WriteLineAsync($"{timeStr};Info;CPU;{Math.Round((double)m.CpuUsage, 1)};{computer.CpuThreshold ?? 85};\"CPU kullanımı %{m.CpuUsage:F1} seviyesinde.\"");
+                }
+
+                // RAM
+                if (warningLookup.TryGetValue($"2__{ts}", out var ramWarn))
+                {
+                    string level = ramWarn.MetricValue >= 95 ? "Critical" : "Warning";
+                    await writer.WriteLineAsync($"{timeStr};{level};RAM;{Math.Round((double)m.RamUsage, 1)};{ramWarn.ThresholdValue};\"RAM kullanımı %{m.RamUsage:F1} seviyesine ulaştı. (Sınır: %{ramWarn.ThresholdValue})\"");
+                }
+                else
+                {
+                    await writer.WriteLineAsync($"{timeStr};Info;RAM;{Math.Round((double)m.RamUsage, 1)};{computer.RamThreshold ?? 85};\"RAM kullanımı %{m.RamUsage:F1} seviyesinde.\"");
+                }
+            }
+
+            await writer.FlushAsync();
+        }
+
+        // Disk Metriklerini parça parça işle
+        var diskDict = computer.Disks.ToDictionary(d => d.Id);
+        skip = 0;
+        hasMore = true;
+
+        while (hasMore)
+        {
+            var batch = await _db.DiskMetrics
+                .AsNoTracking()
+                .Where(m => m.ComputerDisk.ComputerId == computerId && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+                .OrderByDescending(m => m.CreatedAt)
+                .Skip(skip)
+                .Take(batchSize)
+                .ToListAsync();
+
+            if (batch.Count == 0) break;
+            hasMore = batch.Count == batchSize;
+            skip += batch.Count;
+
+            foreach (var dm in batch)
+            {
+                long ts = dm.CreatedAt.Ticks / 10000000;
+                string key = $"3_{dm.ComputerDiskId}_{ts}";
+                string timeStr = dm.CreatedAt.ToString("dd.MM.yyyy HH:mm:ss");
+                var dInfo = diskDict.GetValueOrDefault(dm.ComputerDiskId);
+                string diskName = dInfo?.DiskName ?? "Bilinmeyen";
+
+                if (warningLookup.TryGetValue(key, out var dWarn))
+                {
+                    string level = dWarn.MetricValue >= 95 ? "Critical" : "Warning";
+                    await writer.WriteLineAsync($"{timeStr};{level};Disk ({diskName});{Math.Round(dm.UsedPercent, 1)};{dWarn.ThresholdValue};\"Disk doluluk oranı %{dm.UsedPercent:F1} oldu. (Sınır: %{dWarn.ThresholdValue})\"");
+                }
+                else
+                {
+                    await writer.WriteLineAsync($"{timeStr};Info;Disk ({diskName});{Math.Round(dm.UsedPercent, 1)};{dInfo?.ThresholdPercent ?? 90};\"Disk doluluk oranı %{dm.UsedPercent:F1} seviyesinde.\"");
+                }
+            }
+
+            await writer.FlushAsync();
+        }
+    }
+
+    public async Task<ServiceResult<int>> GetLogCountAsync(int computerId, string start, string end, int userId, bool isAdmin)
+    {
+        if (!await CheckComputerAccessAsync(computerId, userId, isAdmin))
+            return ServiceResult<int>.Failure("Bu cihaza erişim yetkiniz bulunmamaktadır.");
+
+        if (!DateTime.TryParse(start, out DateTime startTime) || !DateTime.TryParse(end, out DateTime endTime))
+            return ServiceResult<int>.Failure("Geçersiz tarih formatı.");
+
+        var cpuRamCount = await _db.ComputerMetrics
+            .Where(m => m.ComputerId == computerId && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+            .CountAsync();
+
+        var diskCount = await _db.DiskMetrics
+            .Where(m => m.ComputerDisk.ComputerId == computerId && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+            .CountAsync();
+
+        // Her ComputerMetric 2 log satırı oluşturur (CPU ve RAM)
+        int totalCount = (cpuRamCount * 2) + diskCount;
+
+        return ServiceResult<int>.Success(totalCount);
+    }
+
+    public async Task<string> GenerateExportTokenAsync(int computerId, string start, string end, int userId, bool isAdmin)
+    {
+        var token = Guid.NewGuid().ToString();
+        var data = new ExportTokenParams { 
+            ComputerId = computerId, 
+            Start = start, 
+            End = end, 
+            UserId = userId, 
+            IsAdmin = isAdmin 
+        };
+
+        // 1 dakika boyunca cache'te sakla
+        _cache.Set($"ExportToken_{token}", data, TimeSpan.FromMinutes(1));
+        return token;
+    }
+
+    public async Task<ExportTokenParams?> GetExportParamsAsync(string token)
+    {
+        var key = $"ExportToken_{token}";
+        if (_cache.TryGetValue(key, out ExportTokenParams? data))
+        {
+            _cache.Remove(key); // Tek kullanımlık
+            return data;
+        }
+        return null;
+    }
 }

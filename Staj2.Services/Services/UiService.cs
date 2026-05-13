@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Staj2.Infrastructure.Data;
 using Staj2.Services.Interfaces;
 using Staj2.Services.Models;
@@ -48,22 +48,72 @@ public class UiService : IUiService
             .OrderBy(x => x.OrderIndex)
             .ToListAsync();
 
-        // 5. Menüleri filtreliyoruz
-        var authorizedItems = allSidebarItems.Where(item =>
+        // --- YENİ: Kalıtımsal Yetki Kontrolü ---
+        // Eğer bir üst menü korumalıysa, çocuklarını da korumalı listesine ekle
+        var inheritedProtectedIds = allSidebarItems
+            .Where(x => x.ParentId.HasValue && allProtectedSidebarItemIds.Contains(x.ParentId.Value))
+            .Select(x => x.Id);
+        allProtectedSidebarItemIds.AddRange(inheritedProtectedIds);
+
+        // Eğer kullanıcı üst menüye yetkiliyse, çocuklarına da yetkili say
+        var inheritedAllowedIds = allSidebarItems
+            .Where(x => x.ParentId.HasValue && userAllowedSidebarItemIds.Contains(x.ParentId.Value))
+            .Select(x => x.Id);
+        userAllowedSidebarItemIds.AddRange(inheritedAllowedIds);
+        // --------------------------------------
+
+        // 5. Menüleri filtreliyoruz (Yetkisi olanlar veya korumasız olanlar)
+        var initialFiltered = allSidebarItems.Where(item =>
             !allProtectedSidebarItemIds.Contains(item.Id) || // Herkese açık menüler
             userAllowedSidebarItemIds.Contains(item.Id)      // Kullanıcının yetkisinin olduğu menüler
-        ).Select(item => new
-        {
-            item.Id,
-            item.Title,
-            item.Icon,
-            item.TargetView,
-            item.OrderIndex,
-            // Eğer bu menünün ID'si korunan menüler listesindeyse true döner
-            IsProtected = allProtectedSidebarItemIds.Contains(item.Id)
-        }).ToList();
+        ).ToList();
 
-        return ServiceResult<object>.Success(authorizedItems);
+        // 6. Eğer bir alt menüye yetki varsa, üst menüsünün de listede olduğundan emin oluyoruz
+        var resultIds = new HashSet<int>(initialFiltered.Select(x => x.Id));
+        foreach (var item in initialFiltered)
+        {
+            var current = item;
+            while (current.ParentId.HasValue)
+            {
+                if (!resultIds.Contains(current.ParentId.Value))
+                {
+                    resultIds.Add(current.ParentId.Value);
+                    current = allSidebarItems.FirstOrDefault(x => x.Id == current.ParentId.Value);
+                    if (current == null) break;
+                }
+                else break;
+            }
+        }
+
+        var finalFiltered = allSidebarItems.Where(x => resultIds.Contains(x.Id)).ToList();
+
+        // 7. Hiyerarşik yapıyı kuruyoruz
+        var rootItems = finalFiltered.Where(x => !x.ParentId.HasValue)
+            .Select(item => new
+            {
+                item.Id,
+                item.Title,
+                item.Icon,
+                item.TargetView,
+                item.OrderIndex,
+                IsProtected = allProtectedSidebarItemIds.Contains(item.Id),
+                Children = finalFiltered.Where(c => c.ParentId == item.Id)
+                    .Select(c => new
+                    {
+                        c.Id,
+                        c.Title,
+                        c.Icon,
+                        c.TargetView,
+                        c.OrderIndex,
+                        IsProtected = allProtectedSidebarItemIds.Contains(c.Id)
+                    })
+                    .OrderBy(c => c.OrderIndex)
+                    .ToList()
+            })
+            .OrderBy(x => x.OrderIndex)
+            .ToList();
+
+        return ServiceResult<object>.Success(rootItems);
     }
 
     public async Task<ServiceResult<List<string>>> GetMyPermissionsAsync(int userId)

@@ -1,4 +1,4 @@
-﻿// STAJ2/wwwroot/assets/js/auth.js
+// STAJ2/wwwroot/assets/js/auth.js
 (function () {
     const TOKEN_KEY = "staj2_token";
     let livePermissions = null;
@@ -41,6 +41,11 @@
             localStorage.removeItem("staj2_username");
             localStorage.removeItem("staj2_roles");
             localStorage.removeItem("staj2_permissions");
+            localStorage.removeItem("staj2_refresh_token");
+            
+            // Session bilgisini temizle (Özellikle lastActiveView hatasını önlemek için)
+            sessionStorage.clear();
+            
             livePermissions = null;
         },
         getToken: () => localStorage.getItem(TOKEN_KEY),

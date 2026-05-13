@@ -82,37 +82,37 @@
             const sidebarItems = await api.get('/api/Ui/sidebar-items');
             let html = '';
 
-            const mainItems = sidebarItems.filter(item => !item.isProtected);
-            const adminItems = sidebarItems.filter(item => item.isProtected);
-
             const lastView = sessionStorage.getItem('lastActiveView') || 'computers';
 
-            mainItems.forEach(item => {
+            sidebarItems.forEach(item => {
                 const isActive = item.targetView === lastView ? 'active' : '';
 
-                html += `
-        <li class="nav-item">
-            <a href="javascript:void(0)" id="nav-${item.targetView}" class="nav-link ${isActive}" onclick="ui.switchView('${item.targetView}')">
-                <i class="${item.icon || 'bi bi-circle'}"></i> <span>${item.title}</span>
-            </a>
-        </li>`;
-            });
-
-            if (adminItems.length > 0) {
-                html += `
-        <li class="px-4 mt-4 mb-2">
-            <small class="text-uppercase fw-bold" style="font-size:0.7rem; letter-spacing:1px; color:var(--text-muted);">Yönetim Paneli</small>
-        </li>`;
-
-                adminItems.forEach(item => {
+                if (item.children && item.children.length > 0) {
+                    // Bu bir başlık/üst menü ise
                     html += `
-            <li class="nav-item">
-                <a href="javascript:void(0)" id="nav-${item.targetView}" class="nav-link" onclick="ui.switchView('${item.targetView}')">
-                    <i class="${item.icon || 'bi bi-circle'}"></i> <span>${item.title}</span>
-                </a>
-            </li>`;
-                });
-            }
+                        <li class="px-4 mt-4 mb-2">
+                            <small class="text-uppercase fw-bold" style="font-size:0.7rem; letter-spacing:1px; color:var(--text-muted);">${item.title}</small>
+                        </li>`;
+
+                    item.children.forEach(child => {
+                        const isChildActive = child.targetView === lastView ? 'active' : '';
+                        html += `
+                            <li class="nav-item">
+                                <a href="javascript:void(0)" id="nav-${child.targetView}" class="nav-link ${isChildActive}" onclick="ui.switchView('${child.targetView}')">
+                                    <i class="${child.icon || 'bi bi-circle'}"></i> <span>${child.title}</span>
+                                </a>
+                            </li>`;
+                    });
+                } else {
+                    // Normal tekli menü ise
+                    html += `
+                        <li class="nav-item">
+                            <a href="javascript:void(0)" id="nav-${item.targetView}" class="nav-link ${isActive}" onclick="ui.switchView('${item.targetView}')">
+                                <i class="${item.icon || 'bi bi-circle'}"></i> <span>${item.title}</span>
+                            </a>
+                        </li>`;
+                }
+            });
 
             nav.innerHTML = html;
 
@@ -413,8 +413,11 @@
                                     <label class="form-label fw-bold small mb-1" style="color:var(--text-muted);">BİTİŞ ZAMANI</label>
                                     <input type="datetime-local" id="logEnd" class="form-control" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
                                 </div>
-                                <button class="btn btn-primary w-100 fw-bold shadow-sm mb-4" onclick="ui.withLoading(this, ui.fetchLogManagementData)">
+                                <button class="btn btn-primary w-100 fw-bold shadow-sm mb-2" onclick="ui.withLoading(this, ui.fetchLogManagementData)">
                                     <i class="bi bi-search me-2"></i> Getir ve Çiz
+                                </button>
+                                <button id="btnDownloadLogCsv" class="btn btn-outline-success w-100 fw-bold shadow-sm mb-4" onclick="ui.downloadLogCsv()" title="Log verilerini CSV olarak indirin">
+                                    <i class="bi bi-filetype-csv me-2"></i> CSV İndir
                                 </button>
                                 <hr>
                                 <h6 class="fw-bold small mb-3" style="color:var(--text-muted);"><i class="bi bi-funnel"></i> METRİK FİLTRELERİ</h6>
@@ -3473,6 +3476,13 @@
             try {
                 const res = await api.get(`/api/Computer/${compId}/logs?start=${start}&end=${end}`);
                 
+                // HATA KORUMASI: Büyük veri setlerinde JSON parse hatası veya timeout durumunda res null gelebilir
+                if (!res || typeof res !== 'object') {
+                    Swal.close();
+                    Swal.fire({ icon: 'error', title: 'Veri Alınamadı', text: 'Sunucu yanıt döndüremedi. Lütfen daha kısa bir tarih aralığı deneyin veya sayfayı yenileyip tekrar deneyin.' });
+                    return;
+                }
+                
                 // PERFORMANS: Filtreleme sırasında donmayı önlemek için veriyi önceden işle (Pre-process)
                 ui.allLogs = (res.logs || []).map(l => {
                     const ts = new Date(l.timestamp);
@@ -3809,6 +3819,75 @@
                 badge.innerHTML = '';
             }
             ui.applyLocalLogFilters();
+        },
+
+        downloadLogCsv: async () => {
+            const compId = document.getElementById('logPageComputerSelect').value;
+            const start = document.getElementById('logStart').value;
+            const end = document.getElementById('logEnd').value;
+
+            if (!compId || !start || !end) {
+                Swal.fire({ icon: 'warning', text: 'Lütfen cihaz ve tarih aralığı seçin.' });
+                return;
+            }
+
+            try {
+                const token = window.auth?.getToken() || localStorage.getItem("staj2_token");
+                const base = window.APP_CONFIG?.API_BASE ?? "";
+
+                // 1. Önce satır sayısını kontrol et
+                const countRes = await fetch(`${base}/api/Computer/${compId}/logs/count?start=${start}&end=${end}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (!countRes.ok) throw new Error("Satır sayısı alınamadı.");
+                const countData = await countRes.json();
+                const totalRows = countData.count;
+
+                // 2. Eğer Excel limitini (1.048.576) aşıyorsa uyar (1 satır başlık + veriler)
+                if (totalRows + 1 > 1048576) {
+                    const result = await Swal.fire({
+                        title: 'Yüksek Veri Miktarı!',
+                        html: `İndirmek istediğiniz veri <b>${totalRows.toLocaleString()}</b> satır içermektedir.<br><br>` +
+                              `<div class="alert alert-warning small text-start">` +
+                              `<i class="bi bi-exclamation-triangle-fill me-2"></i>` +
+                              `Excel en fazla <b>1.048.576</b> satır destekler. Bu dosyayı Excel ile açarsanız veri kaybı yaşayabilirsiniz.<br><br>` +
+                              `<b>Öneri:</b> Dosyayı <b>Notepad++</b> veya benzeri bir metin düzenleyici ile açmanız tavsiye edilir.</div>` +
+                              `<br>Devam etmek istiyor musunuz?`,
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonText: 'Evet, İndir',
+                        cancelButtonText: 'İptal',
+                        confirmButtonColor: '#198754'
+                    });
+
+                    if (!result.isConfirmed) return;
+                }
+
+                // 3. Geçici indirme token'ı oluştur
+                const tokenRes = await fetch(`${base}/api/Computer/${compId}/logs/export-token?start=${start}&end=${end}`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!tokenRes.ok) throw new Error("İndirme yetkisi alınamadı.");
+                const tokenData = await tokenRes.json();
+                const exportToken = tokenData.token;
+
+                // 4. Doğrudan tarayıcı indirmesini tetikle (Native Download)
+                // Bu yöntemle tarayıcı indirmeyi sağ üstte gösterir ve sayfa donmaz.
+                window.location.href = `${base}/api/Computer/logs/export-csv-direct?token=${exportToken}`;
+
+                Swal.fire({ 
+                    icon: 'success', 
+                    title: 'İndirme Başlatıldı', 
+                    text: 'Dosyanız hazırlanıyor ve tarayıcı tarafından indiriliyor.', 
+                    timer: 2000, 
+                    showConfirmButton: false 
+                });
+            } catch (e) {
+                Swal.fire({ icon: 'error', title: 'Hata', text: e.message || 'Bir hata oluştu.' });
+            }
         },
 
         filterHeatmap: (cat) => {

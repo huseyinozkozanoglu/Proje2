@@ -35,7 +35,7 @@ public class ComputerController : ControllerBase
 
     // 1. Cihaz Detayı
     [HttpGet("{id:int}")]
-    [HasPermission(AppPermissions.None)]
+    [HasPermission(AppPermissions.Computer_Read)]
     public async Task<IActionResult> GetComputer(int id)
     {
         var result = await _computerService.GetComputerAsync(id, GetUserId(), IsAdmin());
@@ -52,7 +52,7 @@ public class ComputerController : ControllerBase
 
     // 2. Disk Listesi
     [HttpGet("{computerId:int}/disks")]
-    [HasPermission(AppPermissions.None)]
+    [HasPermission(AppPermissions.Computer_Read)]
     public async Task<IActionResult> GetComputerDisks(int computerId)
     {
         var result = await _computerService.GetComputerDisksAsync(computerId, GetUserId(), IsAdmin());
@@ -117,7 +117,7 @@ public class ComputerController : ControllerBase
 
     // 6. Belirli bir tarih aralığındaki metrik geçmişini getir
     [HttpGet("{id:int}/metrics-history")]
-    [HasPermission(AppPermissions.None)]
+    [HasPermission(AppPermissions.Computer_Read)]
     public async Task<IActionResult> GetMetricsHistory(int id, [FromQuery] string? start, [FromQuery] string? end, [FromQuery] int? maxPoints = null)
     {
         var result = await _computerService.GetMetricsHistoryAsync(id, start, end, maxPoints);
@@ -129,7 +129,7 @@ public class ComputerController : ControllerBase
     }
 
     [HttpGet("metrics-history-batch")]
-    [HasPermission(AppPermissions.None)]
+    [HasPermission(AppPermissions.Computer_Read)]
     public async Task<IActionResult> GetMetricsHistoryBatch([FromQuery] string ids, [FromQuery] string? start, [FromQuery] string? end, [FromQuery] int? maxPoints = null)
     {
         if (string.IsNullOrEmpty(ids)) return BadRequest(new { message = "Cihaz ID'leri boş olamaz." });
@@ -145,7 +145,7 @@ public class ComputerController : ControllerBase
 
     // 7. Tüm Cihazları Getir
     [HttpGet]
-    [HasPermission(AppPermissions.None)]
+    [HasPermission(AppPermissions.Computer_Read)]
     public async Task<IActionResult> GetAllComputers()
     {
         var result = await _computerService.GetAllComputersAsync(GetUserId(), IsAdmin());
@@ -170,7 +170,7 @@ public class ComputerController : ControllerBase
 
     // 9. Etiketleri Getir
     [HttpGet("tags")]
-    [HasPermission(AppPermissions.None)]
+    [HasPermission(AppPermissions.Computer_Read)]
     public async Task<IActionResult> GetMyTags()
     {
         var result = await _computerService.GetMyTagsAsync(GetUserId(), IsAdmin());
@@ -179,6 +179,7 @@ public class ComputerController : ControllerBase
 
     // 10. Performans Raporu
     [HttpGet("performance-report")]
+    [HasPermission(AppPermissions.Computer_Read)]
     public async Task<IActionResult> GetPerformanceReport()
     {
         var result = await _computerService.GetPerformanceReportAsync(GetUserId(), IsAdmin());
@@ -187,6 +188,7 @@ public class ComputerController : ControllerBase
 
     // 11. Metrik Özeti
     [HttpGet("{id:int}/metrics-summary")]
+    [HasPermission(AppPermissions.Computer_Read)]
     public async Task<IActionResult> GetMetricsSummary(int id, [FromQuery] string metricType, [FromQuery] string? diskName = null)
     {
         var result = await _computerService.GetMetricsSummaryAsync(id, metricType, diskName);
@@ -194,6 +196,7 @@ public class ComputerController : ControllerBase
     }
     // 12. Rapor Detayları İçin Trend Verisi
     [HttpGet("{id:int}/metrics-trend")]
+    [HasPermission(AppPermissions.Computer_Read)]
     public async Task<IActionResult> GetMetricsTrendData(int id, [FromQuery] string metricType, [FromQuery] string? diskName = null)
     {
         var result = await _computerService.GetMetricsTrendDataAsync(id, metricType, diskName);
@@ -202,6 +205,7 @@ public class ComputerController : ControllerBase
 
     // ComputerController.cs
     [HttpPost("{id}/threshold-analysis")]
+    [HasPermission(AppPermissions.Computer_Read)]
     public async Task<IActionResult> GetThresholdAnalysis(int id, [FromBody] ThresholdReportRequestDto request)
     {
         // Artık tüm nesneyi tek seferde gönderiyoruz
@@ -214,11 +218,55 @@ public class ComputerController : ControllerBase
     }
 
     [HttpGet("{id:int}/logs")]
-    [HasPermission(AppPermissions.None)]
+    [HasPermission(AppPermissions.Computer_Read)]
     public async Task<IActionResult> GetLogs(int id, [FromQuery] string start, [FromQuery] string end)
     {
         var result = await _computerService.GetLogManagementDataAsync(id, start, end, GetUserId(), IsAdmin());
         if (!result.IsSuccess) return BadRequest(new { message = result.Message });
         return Ok(result.Data);
+    }
+
+    [HttpPost("{id:int}/logs/export-token")]
+    [HasPermission(AppPermissions.Computer_Read)]
+    public async Task<IActionResult> GenerateExportToken(int id, [FromQuery] string start, [FromQuery] string end)
+    {
+        var token = await _computerService.GenerateExportTokenAsync(id, start, end, GetUserId(), IsAdmin());
+        return Ok(new { token });
+    }
+
+    [AllowAnonymous]
+    [HttpGet("logs/export-csv-direct")]
+    public async Task<IActionResult> ExportLogsCsvDirect([FromQuery] string token)
+    {
+        var data = await _computerService.GetExportParamsAsync(token);
+        if (data == null) return BadRequest("İndirme bağlantısı geçersiz veya süresi dolmuş.");
+
+        try
+        {
+            Response.ContentType = "text/csv; charset=utf-8";
+            Response.Headers.Append("Content-Disposition", $"attachment; filename=\"Logs_{data.ComputerId}_{data.Start}_{data.End}.csv\"");
+
+            // UTF-8 BOM
+            await Response.Body.WriteAsync(new byte[] { 0xEF, 0xBB, 0xBF });
+
+            await using var writer = new StreamWriter(Response.Body, System.Text.Encoding.UTF8, leaveOpen: true);
+            await _computerService.ExportLogsCsvAsync(data.ComputerId, data.Start, data.End, data.UserId, data.IsAdmin, writer);
+            await writer.FlushAsync();
+
+            return new EmptyResult();
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpGet("{id:int}/logs/count")]
+    [HasPermission(AppPermissions.Computer_Read)]
+    public async Task<IActionResult> GetLogCount(int id, [FromQuery] string start, [FromQuery] string end)
+    {
+        var result = await _computerService.GetLogCountAsync(id, start, end, GetUserId(), IsAdmin());
+        if (!result.IsSuccess) return BadRequest(new { message = result.Message });
+        return Ok(new { count = result.Data });
     }
 }
