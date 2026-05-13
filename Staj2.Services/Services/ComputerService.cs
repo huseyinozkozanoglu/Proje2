@@ -265,6 +265,149 @@ public class ComputerService : BaseService, IComputerService
         return ServiceResult<object>.Success(response);
     }
 
+    public async Task<ServiceResult<List<MetricBucketDetailDto>>> GetMetricBucketDetailBatchAsync(List<int> computerIds, string start, string end, string metric)
+    {
+        if (computerIds == null || !computerIds.Any()) return ServiceResult<List<MetricBucketDetailDto>>.Failure("Lütfen cihaz seçiniz.");
+        if (!DateTime.TryParse(start, out DateTime startTime) || !DateTime.TryParse(end, out DateTime endTime))
+            return ServiceResult<List<MetricBucketDetailDto>>.Failure("Geçersiz tarih formatı.");
+
+        var resultList = new List<MetricBucketDetailDto>();
+
+        foreach (var id in computerIds)
+        {
+            var computer = await _db.Computers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
+            string compName = computer?.DisplayName ?? computer?.MachineName ?? $"Cihaz {id}";
+
+            var detail = new MetricBucketDetailDto
+            {
+                ComputerId = id,
+                ComputerName = compName
+            };
+
+            if (metric == "CPU" || metric == "RAM")
+            {
+                var raw = await _db.ComputerMetrics
+                    .AsNoTracking()
+                    .Where(m => m.ComputerId == id && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+                    .Select(m => new { m.CreatedAt, Value = metric == "CPU" ? m.CpuUsage : m.RamUsage })
+                    .ToListAsync();
+
+                if (raw.Any())
+                {
+                    var values = raw.Select(r => r.Value).ToList();
+                    detail.MinValue = Math.Round(values.Min(), 2);
+                    detail.MaxValue = Math.Round(values.Max(), 2);
+                    detail.MinCount = values.Count(v => Math.Abs(v - detail.MinValue.Value) < 0.01);
+                    detail.MaxCount = values.Count(v => Math.Abs(v - detail.MaxValue.Value) < 0.01);
+                    detail.AverageValue = Math.Round(values.Average(), 2);
+                    detail.DataPointCount = raw.Count;
+                    
+                    var first = raw.Min(r => r.CreatedAt);
+                    var last = raw.Max(r => r.CreatedAt);
+                    detail.ActiveSeconds = (last - first).TotalSeconds + 10;
+                    detail.ActiveDurationText = FormatSeconds(detail.ActiveSeconds);
+
+                    // Streak Hesaplama
+                    var sortedRaw = raw.OrderBy(r => r.CreatedAt).Select(r => (dynamic)r);
+                    CalculateStreaks(sortedRaw, detail);
+                }
+            }
+            else if (metric.StartsWith("Disk_"))
+            {
+                string targetDisk = metric.Substring(5);
+                var raw = await _db.DiskMetrics
+                    .AsNoTracking()
+                    .Where(m => m.ComputerDisk.ComputerId == id && m.ComputerDisk.DiskName == targetDisk && m.CreatedAt >= startTime && m.CreatedAt <= endTime)
+                    .Select(m => new { m.CreatedAt, Value = m.UsedPercent })
+                    .ToListAsync();
+
+                if (raw.Any())
+                {
+                    var values = raw.Select(r => r.Value).ToList();
+                    detail.MinValue = Math.Round(values.Min(), 2);
+                    detail.MaxValue = Math.Round(values.Max(), 2);
+                    detail.MinCount = values.Count(v => Math.Abs(v - detail.MinValue.Value) < 0.01);
+                    detail.MaxCount = values.Count(v => Math.Abs(v - detail.MaxValue.Value) < 0.01);
+                    detail.AverageValue = Math.Round(values.Average(), 2);
+                    detail.DataPointCount = raw.Count;
+
+                    var first = raw.Min(r => r.CreatedAt);
+                    var last = raw.Max(r => r.CreatedAt);
+                    detail.ActiveSeconds = (last - first).TotalSeconds + 10;
+                    detail.ActiveDurationText = FormatSeconds(detail.ActiveSeconds);
+
+                    // Streak Hesaplama
+                    var sortedRaw = raw.OrderBy(r => r.CreatedAt).Select(r => (dynamic)r);
+                    CalculateStreaks(sortedRaw, detail);
+                }
+            }
+
+            resultList.Add(detail);
+        }
+
+        return ServiceResult<List<MetricBucketDetailDto>>.Success(resultList);
+    }
+
+    private void CalculateStreaks(IEnumerable<dynamic> sortedData, MetricBucketDetailDto detail)
+    {
+        if (sortedData == null || !sortedData.Any()) return;
+
+        int currentMaxStreak = 0;
+        DateTime? currentMaxStart = null;
+        
+        int currentMinStreak = 0;
+        DateTime? currentMinStart = null;
+
+        foreach (var item in sortedData)
+        {
+            // Max Streak
+            if (Math.Abs((double)item.Value - detail.MaxValue.Value) < 0.01)
+            {
+                detail.MaxOccurrenceTimes.Add(item.CreatedAt);
+
+                if (currentMaxStreak == 0) currentMaxStart = item.CreatedAt;
+                currentMaxStreak++;
+                
+                if (currentMaxStreak > detail.MaxStreakCount)
+                {
+                    detail.MaxStreakCount = currentMaxStreak;
+                    detail.MaxStreakRange = $"{currentMaxStart:dd MMMM HH:mm:ss} - {item.CreatedAt:HH:mm:ss}";
+                }
+            }
+            else
+            {
+                currentMaxStreak = 0;
+            }
+
+            // Min Streak
+            if (Math.Abs((double)item.Value - detail.MinValue.Value) < 0.01)
+            {
+                detail.MinOccurrenceTimes.Add(item.CreatedAt);
+
+                if (currentMinStreak == 0) currentMinStart = item.CreatedAt;
+                currentMinStreak++;
+                
+                if (currentMinStreak > detail.MinStreakCount)
+                {
+                    detail.MinStreakCount = currentMinStreak;
+                    detail.MinStreakRange = $"{currentMinStart:dd MMMM HH:mm:ss} - {item.CreatedAt:HH:mm:ss}";
+                }
+            }
+            else
+            {
+                currentMinStreak = 0;
+            }
+        }
+    }
+
+    private string FormatSeconds(double seconds)
+    {
+        var ts = TimeSpan.FromSeconds(seconds);
+        if (ts.TotalMinutes < 1) return $"{(int)ts.TotalSeconds} sn";
+        if (ts.TotalHours < 1) return $"{(int)ts.TotalMinutes} dk {(int)ts.Seconds} sn";
+        return $"{(int)ts.TotalHours} sa {(int)ts.Minutes} dk";
+    }
+
     // ----- YARDIMCI METOTLAR -----
     private List<CpuRamBucketDto> FillCpuGapsForBatch(IEnumerable<dynamic> dbData, DateTime start, int bucketSeconds, int maxPoints)
     {

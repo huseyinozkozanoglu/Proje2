@@ -143,6 +143,20 @@ public class ComputerController : ControllerBase
         return Ok(result.Data);
     }
 
+    [HttpGet("metrics-history-bucket-detail")]
+    [HasPermission(AppPermissions.Computer_Read)]
+    public async Task<IActionResult> GetMetricsHistoryBucketDetail([FromQuery] string ids, [FromQuery] string start, [FromQuery] string end, [FromQuery] string metric)
+    {
+        if (string.IsNullOrEmpty(ids)) return BadRequest(new { message = "Cihaz ID'leri boş olamaz." });
+        var idList = ids.Split(',').Select(int.Parse).ToList();
+        var result = await _computerService.GetMetricBucketDetailBatchAsync(idList, start, end, metric);
+
+        if (!result.IsSuccess)
+            return BadRequest(new { message = result.Message });
+
+        return Ok(result.Data);
+    }
+
     // 7. Tüm Cihazları Getir
     [HttpGet]
     [HasPermission(AppPermissions.Computer_Read)]

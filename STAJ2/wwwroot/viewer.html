@@ -81,8 +81,9 @@
         }
 
         .modal {
-            align-items: center !important;
-            justify-content: center !important;
+            align-items: flex-start;
+            justify-content: center;
+            padding-top: 2rem;
         }
 
             .modal.show, .modal[style*="display: block"] {
@@ -569,22 +570,22 @@
 
     <!-- BUCKET DETAY MODALI (Drill-Down) -->
     <div class="modal fade" id="bucketDetailModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-xl modal-dialog-centered" style="max-width: 95% !important; width: 95% !important;">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable" style="max-width: 95% !important; width: 95% !important; margin-top: 2rem;">
             <div class="modal-content shadow-lg" style="background-color: var(--bg-card); border: 1px solid var(--border-color);">
-                <div class="modal-header border-bottom border-secondary">
-                    <h5 class="modal-title text-info"><i class="bi bi-zoom-in"></i> Aralık Detay Analizi</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                <div class="modal-header border-bottom border-secondary d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-3">
+                        <h5 class="modal-title text-info m-0"><i class="bi bi-zoom-in"></i> Aralık Detay Analizi</h5>
+                        <div class="vr bg-secondary mx-2" style="height: 20px;"></div>
+                        <span id="bucketDetailTimeRange" class="small text-muted">Seçili zaman aralığı detayları</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button id="btnBucketDetailBack" class="btn btn-sm btn-info text-dark fw-bold" style="display:none;" onclick="window.ui.goBackBucketDetail()">
+                            <i class="bi bi-arrow-left"></i> Geri Dön
+                        </button>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
                 </div>
                 <div class="modal-body p-4">
-                    <div class="alert alert-info py-2 small mb-3 d-flex justify-content-between align-items-center" style="background: rgba(13, 202, 240, 0.1); border: 1px solid rgba(13, 202, 240, 0.2); color: var(--text-main);">
-                        <div>
-                            <i class="bi bi-info-circle-fill me-2"></i>
-                            <span id="bucketDetailTimeRange">Seçili zaman aralığı detayları</span>
-                        </div>
-                        <button id="btnBucketDetailBack" class="btn btn-sm btn-info text-dark fw-bold" style="display:none;" onclick="window.goBackBucketDetail()">
-                            <i class="bi bi-arrow-left"></i> Geri
-                        </button>
-                    </div>
                     
                     <div style="position: relative; height: 400px; width: 100%;" class="mb-4">
                         <canvas id="bucketDetailChart"></canvas>

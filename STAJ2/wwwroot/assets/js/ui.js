@@ -1120,7 +1120,7 @@
     }
 
     // --- Fonksiyonları Dışarı Aç (Window.UI) ---
-    window.ui = {
+    const ui = {
         allLogs: [],
         currentLogTimeFilter: null,
         filteredLogs: [],
@@ -3442,28 +3442,41 @@
                                     callback: (val) => '%' + val
                                 }, 
                                 grid: { color: gridColor, drawBorder: false } 
-                            },
-                            x: { 
-                                ticks: { 
-                                    color: textColor,
-                                    maxTicksLimit: 12,
-                                    font: { family: 'Inter', size: 11 },
-                                    callback: function(val, index) {
-                                        const label = this.getLabelForValue(val);
-                                        if (label && typeof label === 'string') {
-                                            // "07 Mayıs 15.30.00" gibi geleni sadece "15.30" yapalım veya kısa tutalım
-                                            const part = label.split('-')[0].trim();
-                                            const parts = part.split(' ');
-                                            if (parts.length >= 3) {
-                                                // "7 Mayıs 15.30.00" -> "7 Mayıs 15.30"
-                                                return parts[0] + ' ' + parts[1] + ' ' + parts[2].substring(0, 5);
-                                            }
-                                            return part;
-                                        }
-                                        return label;
-                                    }
-                                }, 
-                                grid: { display: false } 
+                              },
+                              x: { 
+                                  ticks: { 
+                                      color: textColor,
+                                      maxTicksLimit: 12,
+                                      font: { family: 'Inter', size: 11 },
+                                      callback: function(val, index) {
+                                          const label = this.getLabelForValue(val);
+                                          if (label && typeof label === 'string') {
+                                              // "07 Mayıs 15.30.00" gibi geleni sadece "15.30" yapalım veya kısa tutalım
+                                              const part = label.split('-')[0].trim();
+                                              const parts = part.split(' ');
+                                              if (parts.length >= 3) {
+                                                  // "7 Mayıs 15.30.00" -> "7 Mayıs 15.30"
+                                                  return parts[0] + ' ' + parts[1] + ' ' + parts[2].substring(0, 5);
+                                              }
+                                              return part;
+                                          }
+                                          return label;
+                                      }
+                                  }, 
+                                  grid: { display: false } 
+                              }
+                        },
+                        onClick: (event, elements, chart) => {
+                            if (elements.length > 0) {
+                                const dataIndex = elements[0].index;
+                                const ts = sortedKeys[dataIndex];
+                                // Bitiş zamanını bir sonraki noktadan veya maxTimeMap'ten alıyoruz
+                                const nextTs = sortedKeys[dataIndex + 1] || maxTimeMap[ts] || (ts + 60000); 
+                                
+                                const startTimeStr = new Date(ts).toISOString();
+                                const endTimeStr = new Date(nextTs).toISOString();
+                                
+                                ui.showComparisonBucketDetail(ids, startTimeStr, endTimeStr, metric, labels[dataIndex]);
                             }
                         }
                     }
@@ -3473,6 +3486,216 @@
                 Swal.close();
                 Swal.fire({ icon: 'error', text: e.message || 'Veriler alınırken hata oluştu.' });
             }
+        },
+
+        currentBucketDetails: null,
+        currentBucketLabel: '',
+
+        showComparisonBucketDetail: async (ids, start, end, metric, label) => {
+            try {
+                Swal.fire({ title: 'Detaylar Yükleniyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+                const details = await api.get(`/api/Computer/metrics-history-bucket-detail?ids=${ids}&start=${start}&end=${end}&metric=${metric}`);
+                Swal.close();
+
+                ui.currentBucketDetails = details;
+                ui.currentBucketLabel = label;
+                
+                ui.renderBucketDetailSummary();
+
+                // Modalı aç (Eğer Chart varsa gizle)
+                const detailChart = document.getElementById('bucketDetailChart');
+                if (detailChart && detailChart.parentElement) {
+                    detailChart.parentElement.style.display = 'none';
+                }
+                
+                const modalEl = document.getElementById('bucketDetailModal');
+                if (modalEl) {
+                    const modal = new bootstrap.Modal(modalEl);
+                    modal.show();
+                }
+
+            } catch (e) {
+                console.error(e);
+                Swal.close();
+                Swal.fire({ icon: 'error', text: 'Detaylar alınırken bir hata oluştu.' });
+            }
+        },
+
+        renderBucketDetailSummary: () => {
+            const container = document.getElementById('bucketDetailSummary');
+            const timeRangeEl = document.getElementById('bucketDetailTimeRange');
+            const backBtn = document.getElementById('btnBucketDetailBack');
+            
+            if (timeRangeEl) timeRangeEl.textContent = ui.currentBucketLabel;
+            if (backBtn) backBtn.style.display = 'none';
+            
+            if (!container || !ui.currentBucketDetails) return;
+            
+            container.innerHTML = '';
+            ui.currentBucketDetails.forEach((d, idx) => {
+                const card = document.createElement('div');
+                card.className = 'col-md-6 col-lg-4';
+                
+                if (d.dataPointCount === 0) {
+                    card.innerHTML = `
+                        <div class="card h-100 border-secondary opacity-75" style="background: rgba(30, 41, 59, 0.5);">
+                            <div class="card-body">
+                                <h6 class="fw-bold text-info mb-3 text-truncate">${d.computerName}</h6>
+                                <div class="text-center py-4 text-muted small">
+                                    <i class="bi bi-exclamation-triangle d-block fs-2 mb-2"></i>
+                                    Bu aralıkta veri bulunamadı.
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    card.innerHTML = `
+                        <div class="card h-100 border-0 shadow-sm" style="background: var(--bg-card); border: 1px solid var(--border-color) !important;">
+                            <div class="card-body">
+                                <h6 class="fw-bold text-info mb-3 text-truncate border-bottom pb-2" style="border-color: var(--border-color) !important;">
+                                    <i class="bi bi-pc-display me-2"></i>${d.computerName}
+                                </h6>
+                                <div class="row g-2 mb-3">
+                                    <div class="col-6">
+                                        <div class="p-2 rounded" style="background: rgba(56, 189, 248, 0.1);">
+                                            <small class="text-muted d-block" style="font-size: 0.7rem;">Ortalama</small>
+                                            <span class="fw-bold text-primary">%${d.averageValue}</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="p-2 rounded" style="background: rgba(248, 113, 113, 0.1);">
+                                            <small class="text-muted d-block" style="font-size: 0.7rem;">Maksimum</small>
+                                            <span class="fw-bold text-danger">%${d.maxValue}</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="p-2 rounded" style="background: rgba(74, 222, 128, 0.1);">
+                                            <small class="text-muted d-block" style="font-size: 0.7rem;">Minimum</small>
+                                            <span class="fw-bold text-success">%${d.minValue}</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="p-2 rounded" style="background: rgba(156, 163, 175, 0.1);">
+                                            <small class="text-muted d-block" style="font-size: 0.7rem;">Veri Sayısı</small>
+                                            <span class="fw-bold" style="color: var(--text-main);">${d.dataPointCount} Adet</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="list-group list-group-flush small">
+                                    <div class="list-group-item d-flex justify-content-between px-0 bg-transparent border-secondary" style="border-color: var(--border-color) !important; color: var(--text-muted);">
+                                        <span>Maksimum Tekrar:</span>
+                                        <span class="badge bg-danger rounded-pill cursor-pointer hover-scale" onclick="window.ui.showOccurrenceList(${idx}, 'max')" title="Zaman listesini gör">
+                                            ${d.maxCount} Kez <i class="bi bi-list-ul ms-1"></i>
+                                        </span>
+                                    </div>
+                                    ${d.maxStreakCount > 1 ? `
+                                    <div class="list-group-item px-0 bg-transparent border-secondary" style="border-color: var(--border-color) !important; font-size: 0.75rem;">
+                                        <div class="d-flex justify-content-between text-danger fw-bold mb-1">
+                                            <span><i class="bi bi-graph-up me-1"></i> En Uzun Zirve:</span>
+                                            <span>${d.maxStreakCount} Veri</span>
+                                        </div>
+                                        <div class="text-muted text-end italic">${d.maxStreakRange}</div>
+                                    </div>
+                                    ` : ''}
+                                    <div class="list-group-item d-flex justify-content-between px-0 bg-transparent border-secondary" style="border-color: var(--border-color) !important; color: var(--text-muted);">
+                                        <span>Minimum Tekrar:</span>
+                                        <span class="badge bg-success rounded-pill cursor-pointer hover-scale" onclick="window.ui.showOccurrenceList(${idx}, 'min')" title="Zaman listesini gör">
+                                            ${d.minCount} Kez <i class="bi bi-list-ul ms-1"></i>
+                                        </span>
+                                    </div>
+                                    ${d.minStreakCount > 1 ? `
+                                    <div class="list-group-item px-0 bg-transparent border-secondary" style="border-color: var(--border-color) !important; font-size: 0.75rem;">
+                                        <div class="d-flex justify-content-between text-success fw-bold mb-1">
+                                            <span><i class="bi bi-graph-down me-1"></i> En Uzun Dip:</span>
+                                            <span>${d.minStreakCount} Veri</span>
+                                        </div>
+                                        <div class="text-muted text-end italic">${d.minStreakRange}</div>
+                                    </div>
+                                    ` : ''}
+                                    <div class="list-group-item d-flex justify-content-between px-0 bg-transparent border-0" style="color: var(--text-muted);">
+                                        <span>Aktif Süre:</span>
+                                        <span class="fw-bold text-info">${d.activeDurationText}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                container.appendChild(card);
+            });
+        },
+
+        showOccurrenceList: (idx, type) => {
+            const d = ui.currentBucketDetails[idx];
+            const times = type === 'max' ? d.maxOccurrenceTimes : d.minOccurrenceTimes;
+            const title = type === 'max' ? 'Maksimum' : 'Minimum';
+            const val = type === 'max' ? d.maxValue : d.minValue;
+            const colorClass = type === 'max' ? 'text-danger' : 'text-success';
+
+            const container = document.getElementById('bucketDetailSummary');
+            const timeRangeEl = document.getElementById('bucketDetailTimeRange');
+            const backBtn = document.getElementById('btnBucketDetailBack');
+
+            if (timeRangeEl) timeRangeEl.innerHTML = `<span class="${colorClass}">${d.computerName}</span> - ${title} Değer (%${val}) Zamanları`;
+            if (backBtn) backBtn.style.display = 'inline-block';
+
+            container.innerHTML = `
+                <div class="col-12">
+                    <div class="card border-0 shadow-sm" style="background: var(--bg-card); border: 1px solid var(--border-color) !important;">
+                        <div class="card-header bg-transparent border-bottom border-secondary d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0 fw-bold"><i class="bi bi-clock-history me-2"></i> Zaman Listesi (${times.length} Kayıt)</h6>
+                            <div class="input-group input-group-sm" style="width: 250px;">
+                                <span class="input-group-text bg-dark border-secondary text-muted"><i class="bi bi-search"></i></span>
+                                <input type="text" id="occurrenceSearch" class="form-control bg-dark border-secondary text-white" placeholder="Tarih/Saat ara..." onkeyup="window.ui.filterOccurrences()">
+                            </div>
+                        </div>
+                        <div class="card-body p-0" style="max-height: 500px; overflow-y: auto;">
+                            <table class="table table-dark table-hover mb-0 small" id="occurrenceTable">
+                                <thead class="sticky-top bg-dark">
+                                    <tr>
+                                        <th class="ps-4">#</th>
+                                        <th>Tarih ve Saat</th>
+                                        <th>Değer</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${times.map((t, i) => `
+                                        <tr>
+                                            <td class="ps-4 text-muted">${i + 1}</td>
+                                            <td class="fw-bold">${luxon.DateTime.fromISO(t).setLocale('tr').toFormat('dd MMMM yyyy HH:mm:ss')}</td>
+                                            <td class="${colorClass}">%${val}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        },
+
+        filterOccurrences: () => {
+            const input = document.getElementById('occurrenceSearch');
+            const filter = input.value.toUpperCase();
+            const table = document.getElementById('occurrenceTable');
+            const tr = table.getElementsByTagName('tr');
+
+            for (let i = 1; i < tr.length; i++) {
+                const td = tr[i].getElementsByTagName('td')[1]; // Tarih kolonu
+                if (td) {
+                    const txtValue = td.textContent || td.innerText;
+                    if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                        tr[i].style.display = '';
+                    } else {
+                        tr[i].style.display = 'none';
+                    }
+                }
+            }
+        },
+        
+        goBackBucketDetail: () => {
+            ui.renderBucketDetailSummary();
         },
 
         initLogManagementPage: async () => {
@@ -4086,6 +4309,7 @@
         }
         
     };
+    window.ui = ui;
     window.warningData = { cpu: [], ram: [], disk: [] };
     window.warningPages = { cpu: 1, ram: 1, disk: 1 };
     const WARNING_ITEMS_PER_PAGE = 10; // Her sayfada gösterilecek cihaz sayısı
@@ -4279,6 +4503,7 @@
         window.warningPages[type] = newPage;
         window.renderPaginatedWarningList(type);
     };
+
     // --- Tema Başlatma (Sayfa Yüklenince) ---
     (function initTheme() {
         const savedTheme = localStorage.getItem('theme') || 'dark';
