@@ -7,6 +7,7 @@ namespace Staj2.Services.Models
     {
         public List<LogEntryDto> Logs { get; set; } = new();
         public List<HistogramBucketDto> Histogram { get; set; } = new();
+        public int TotalCount { get; set; }
     }
 
     public class LogEntryDto
@@ -25,6 +26,20 @@ namespace Staj2.Services.Models
         public int InfoCount { get; set; }
         public int WarningCount { get; set; }
         public int CriticalCount { get; set; }
+        public HistogramBucketDetailsDto Details { get; set; } = new();
+    }
+
+    public class HistogramBucketDetailsDto
+    {
+        public HistogramLevelDetailDto Critical { get; set; } = new();
+        public HistogramLevelDetailDto Warning { get; set; } = new();
+        public HistogramLevelDetailDto Info { get; set; } = new();
+    }
+
+    public class HistogramLevelDetailDto
+    {
+        public int Count { get; set; }
+        public Dictionary<string, int> Metrics { get; set; } = new();
     }
 
     public class ExportTokenParams

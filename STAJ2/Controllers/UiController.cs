@@ -63,7 +63,8 @@ public class UiController : ControllerBase
         var settings = new
         {
             defaultMaxPoints = _config.GetValue<int>("ChartSettings:DefaultMaxPoints", 200),
-            detailMaxPoints = _config.GetValue<int>("ChartSettings:DetailMaxPoints", 1000)
+            detailMaxPoints = _config.GetValue<int>("ChartSettings:DetailMaxPoints", 1000),
+            logMonthLimit = _config.GetValue<int>("ChartSettings:LogMonthLimit", 6)
         };
         return Ok(settings);
     }

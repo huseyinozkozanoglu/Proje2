@@ -31,15 +31,46 @@
 
         if (totalPages <= 1) { container.innerHTML = ''; return; }
 
-        let html = '<ul class="pagination pagination-sm justify-content-center mt-3 mb-0 shadow-sm">';
+        let html = '<ul class="pagination pagination-sm justify-content-center mt-3 mb-0 shadow-sm" style="flex-wrap: wrap; gap: 2px;">';
         html += `<li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
                     <a class="page-link" href="javascript:void(0)" onclick="${changePageFnString}(${currentPage - 1})">Önceki</a>
                  </li>`;
+
+        const delta = 2; // Aktif sayfanın sağında ve solunda kaç sayı görünecek
+        const left = currentPage - delta;
+        const right = currentPage + delta + 1;
+        const range = [];
+        const rangeWithDots = [];
+        let l;
+
         for (let i = 1; i <= totalPages; i++) {
-            html += `<li class="page-item ${currentPage === i ? 'active' : ''}">
-                        <a class="page-link" href="javascript:void(0)" onclick="${changePageFnString}(${i})">${i}</a>
-                     </li>`;
+            if (i == 1 || i == totalPages || (i >= left && i < right)) {
+                range.push(i);
+            }
         }
+
+        for (let i of range) {
+            if (l) {
+                if (i - l === 2) {
+                    rangeWithDots.push(l + 1);
+                } else if (i - l !== 1) {
+                    rangeWithDots.push('...');
+                }
+            }
+            rangeWithDots.push(i);
+            l = i;
+        }
+
+        for (let i of rangeWithDots) {
+            if (i === '...') {
+                html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+            } else {
+                html += `<li class="page-item ${currentPage === i ? 'active' : ''}">
+                            <a class="page-link" href="javascript:void(0)" onclick="${changePageFnString}(${i})">${i}</a>
+                         </li>`;
+            }
+        }
+
         html += `<li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
                     <a class="page-link" href="javascript:void(0)" onclick="${changePageFnString}(${currentPage + 1})">Sonraki</a>
                  </li>`;
@@ -413,37 +444,41 @@
                                     <label class="form-label fw-bold small mb-1" style="color:var(--text-muted);">BİTİŞ ZAMANI</label>
                                     <input type="datetime-local" id="logEnd" class="form-control" style="background:var(--bg-input); color:var(--text-main); border-color:var(--border-input);">
                                 </div>
-                                <button class="btn btn-primary w-100 fw-bold shadow-sm mb-2" onclick="ui.withLoading(this, ui.fetchLogManagementData)">
+                                <button id="btnFetchLogs" class="btn btn-primary w-100 fw-bold shadow-sm mb-2" onclick="ui.withLoading(this, ui.fetchLogManagementData)">
                                     <i class="bi bi-search me-2"></i> Getir ve Çiz
                                 </button>
+                                <div id="logRangeWarning" class="alert alert-warning mt-2 small" style="display:none; border-radius: 8px; border: 1px solid rgba(255, 193, 7, 0.2); background: rgba(255, 193, 7, 0.05); color: #ffc107;">
+                                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                    <span id="logRangeWarningText">6 aydan fazla aralık seçemezsiniz. İsterseniz CSV dosyası ile analiz yapabilirsiniz.</span>
+                                </div>
                                 <button id="btnDownloadLogCsv" class="btn btn-outline-success w-100 fw-bold shadow-sm mb-4" onclick="ui.downloadLogCsv()" title="Log verilerini CSV olarak indirin">
                                     <i class="bi bi-filetype-csv me-2"></i> CSV İndir
                                 </button>
                                 <hr>
                                 <h6 class="fw-bold small mb-3" style="color:var(--text-muted);"><i class="bi bi-funnel"></i> METRİK FİLTRELERİ</h6>
                                 <div class="form-check form-switch mb-2">
-                                    <input class="form-check-input" type="checkbox" id="filterCpu" checked onchange="ui.applyLocalLogFilters()">
+                                    <input class="form-check-input" type="checkbox" id="filterCpu" checked onchange="ui.changeFilter()">
                                     <label class="form-check-label small" for="filterCpu">CPU Logları</label>
                                 </div>
                                 <div class="form-check form-switch mb-2">
-                                    <input class="form-check-input" type="checkbox" id="filterRam" checked onchange="ui.applyLocalLogFilters()">
+                                    <input class="form-check-input" type="checkbox" id="filterRam" checked onchange="ui.changeFilter()">
                                     <label class="form-check-label small" for="filterRam">RAM Logları</label>
                                 </div>
                                 <div class="form-check form-switch mb-4">
-                                    <input class="form-check-input" type="checkbox" id="filterDisk" checked onchange="ui.applyLocalLogFilters()">
+                                    <input class="form-check-input" type="checkbox" id="filterDisk" checked onchange="ui.changeFilter()">
                                     <label class="form-check-label small" for="filterDisk">Disk Logları</label>
                                 </div>
                                 <h6 class="fw-bold small mb-3" style="color:var(--text-muted);"><i class="bi bi-exclamation-triangle"></i> SEVİYE FİLTRESİ</h6>
                                 <div class="form-check form-switch mb-2">
-                                    <input class="form-check-input" type="checkbox" id="filterCritical" checked onchange="ui.applyLocalLogFilters()">
+                                    <input class="form-check-input" type="checkbox" id="filterCritical" checked onchange="ui.changeFilter()">
                                     <label class="form-check-label small text-danger" for="filterCritical">Critical (Kritik Aşım)</label>
                                 </div>
                                 <div class="form-check form-switch mb-2">
-                                    <input class="form-check-input" type="checkbox" id="filterWarning" checked onchange="ui.applyLocalLogFilters()">
+                                    <input class="form-check-input" type="checkbox" id="filterWarning" checked onchange="ui.changeFilter()">
                                     <label class="form-check-label small text-warning" for="filterWarning">Warning (Uyarı Seviyesi)</label>
                                 </div>
                                 <div class="form-check form-switch mb-2">
-                                    <input class="form-check-input" type="checkbox" id="filterInfo" checked onchange="ui.applyLocalLogFilters()">
+                                    <input class="form-check-input" type="checkbox" id="filterInfo" checked onchange="ui.changeFilter()">
                                     <label class="form-check-label small text-success" for="filterInfo">Info (Normal)</label>
                                 </div>
                             </div>
@@ -1091,6 +1126,12 @@
         filteredLogs: [],
         logRenderIndex: 0,
         filterTimeout: null,
+        logMonthLimit: 6, 
+        logOffset: 0,
+        savedLogOffset: 0,
+        logLimit: 500,
+        logTotalCount: 0,
+        mainLogTotalCount: 0,
         show, hide, setText, backOrHome,
         renderSidebar, switchView, toggleTheme, withLoading,
 
@@ -3439,6 +3480,12 @@
             if (!select) return;
 
             try {
+                // Ayarları çek
+                const settings = await api.get('/api/Ui/chart-settings');
+                if (settings && settings.logMonthLimit) {
+                    ui.logMonthLimit = settings.logMonthLimit;
+                }
+
                 const computers = await api.get('/api/Computer');
                 select.innerHTML = '<option value="">Cihaz seçin...</option>';
                 computers.filter(c => !c.isDeleted).forEach(c => {
@@ -3452,8 +3499,44 @@
             const now = new Date();
             const yesterday = new Date(now.getTime() - (24 * 60 * 60 * 1000));
             const toISO = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-            document.getElementById('logStart').value = toISO(yesterday);
-            document.getElementById('logEnd').value = toISO(now);
+            
+            const startEl = document.getElementById('logStart');
+            const endEl = document.getElementById('logEnd');
+            
+            if (startEl) {
+                startEl.value = toISO(yesterday);
+                startEl.addEventListener('change', ui.checkLogRange);
+            }
+            if (endEl) {
+                endEl.value = toISO(now);
+                endEl.addEventListener('change', ui.checkLogRange);
+            }
+
+            // İlk kontrolü yap
+            ui.checkLogRange();
+        },
+
+        checkLogRange: () => {
+            const startVal = document.getElementById('logStart').value;
+            const endVal = document.getElementById('logEnd').value;
+            if (!startVal || !endVal) return;
+
+            const start = luxon.DateTime.fromISO(startVal);
+            const end = luxon.DateTime.fromISO(endVal);
+            const diff = end.diff(start, 'months').months;
+
+            const btn = document.getElementById('btnFetchLogs');
+            const warning = document.getElementById('logRangeWarning');
+            const warningText = document.getElementById('logRangeWarningText');
+
+            if (diff > ui.logMonthLimit) {
+                if (btn) btn.disabled = true;
+                if (warning) warning.style.display = 'block';
+                if (warningText) warningText.innerText = `${ui.logMonthLimit} aydan fazla aralık seçemezsiniz. İsterseniz CSV dosyası ile analiz yapabilirsiniz.`;
+            } else {
+                if (btn) btn.disabled = false;
+                if (warning) warning.style.display = 'none';
+            }
         },
 
         fetchLogManagementData: async () => {
@@ -3466,24 +3549,54 @@
                 return;
             }
 
-            // Yeni veri çekerken yerel zaman filtresini sıfırla
             ui.currentLogTimeFilter = null;
             const badge = document.getElementById('activeLogTimeFilter');
             if (badge) { badge.style.display = 'none'; badge.innerHTML = ''; }
 
-            Swal.fire({ title: 'Loglar Hazırlanıyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+            const filters = ui.getLogFilters();
+            if (filters.levelCount === 0 && filters.metricCount === 0) {
+                Swal.fire({ icon: 'warning', text: 'Lütfen en az bir filtreyi (Metrik veya Seviye) aktif hale getirin.' });
+                return;
+            }
+
+            ui.logOffset = 0;
+            Swal.fire({ title: 'Veriler Hazırlanıyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
 
             try {
-                const res = await api.get(`/api/Computer/${compId}/logs?start=${start}&end=${end}`);
+                const filters = ui.getLogFilters();
+                const search = document.getElementById('logSearchInput')?.value || "";
+                // 1. Histogram Verilerini Çek
+                const histData = await api.get(`/api/Computer/${compId}/logs/histogram?start=${start}&end=${end}&levels=${filters.levels}&metrics=${filters.metrics}&search=${encodeURIComponent(search)}`);
+                ui.renderLogHistogram(histData);
+
+                // 2. İlk Sayfa Loglarını Çek
+                await ui.fetchPaginatedLogs(0);
+                ui.mainLogTotalCount = ui.logTotalCount;
                 
-                // HATA KORUMASI: Büyük veri setlerinde JSON parse hatası veya timeout durumunda res null gelebilir
-                if (!res || typeof res !== 'object') {
-                    Swal.close();
-                    Swal.fire({ icon: 'error', title: 'Veri Alınamadı', text: 'Sunucu yanıt döndüremedi. Lütfen daha kısa bir tarih aralığı deneyin veya sayfayı yenileyip tekrar deneyin.' });
-                    return;
+                Swal.close();
+            } catch (e) {
+                Swal.close();
+                Swal.fire({ icon: 'error', text: e.message || 'Veri çekilirken hata oluştu.' });
+            }
+        },
+
+        fetchPaginatedLogs: async (offset) => {
+            const compId = document.getElementById('logPageComputerSelect').value;
+            const start = ui.currentLogTimeFilter ? ui.currentLogTimeFilter.start.toISOString() : document.getElementById('logStart').value;
+            const end = ui.currentLogTimeFilter ? ui.currentLogTimeFilter.end.toISOString() : document.getElementById('logEnd').value;
+            const filters = ui.getLogFilters();
+            const search = document.getElementById('logSearchInput')?.value || "";
+
+            ui.logOffset = offset;
+            
+            try {
+                const res = await api.get(`/api/Computer/${compId}/logs/paginated?start=${start}&end=${end}&offset=${offset}&limit=${ui.logLimit}&levels=${filters.levels}&metrics=${filters.metrics}&search=${encodeURIComponent(search)}`);
+                
+                if (res.totalCount !== undefined) {
+                    ui.logTotalCount = res.totalCount;
+                } else if (offset === 0) {
+                    ui.logTotalCount = 0;
                 }
-                
-                // PERFORMANS: Filtreleme sırasında donmayı önlemek için veriyi önceden işle (Pre-process)
                 ui.allLogs = (res.logs || []).map(l => {
                     const ts = new Date(l.timestamp);
                     const timeStr = ts.toLocaleDateString('tr-TR') + ' ' + ts.toLocaleTimeString('tr-TR');
@@ -3493,60 +3606,43 @@
                         _timeStr: timeStr
                     };
                 });
-                
-                // PERFORMANS: Histogram tooltip'leri için dağılım verisini önceden hesapla
-                const histogram = res.histogram || [];
-                if (histogram.length > 0) {
-                    histogram.forEach((bucket, idx) => {
-                        const startTs = new Date(bucket.timestamp).getTime();
-                        let endTs;
-                        if (idx < histogram.length - 1) {
-                            endTs = new Date(histogram[idx + 1].timestamp).getTime();
-                        } else if (histogram.length > 1) {
-                            endTs = startTs + (new Date(histogram[1].timestamp).getTime() - new Date(histogram[0].timestamp).getTime());
-                        } else {
-                            endTs = startTs + 60000;
-                        }
 
-                        // Bu bucket'taki tüm logları bul
-                        const logsInBucket = ui.allLogs.filter(l => {
-                            const ts = new Date(l.timestamp).getTime();
-                            return ts >= startTs && ts < endTs;
-                        });
-
-                        const totalLogs = logsInBucket.length;
-                        bucket._details = {
-                            Critical: { count: 0, metrics: {}, percent: 0 },
-                            Warning: { count: 0, metrics: {}, percent: 0 },
-                            Info: { count: 0, metrics: {}, percent: 0 }
-                        };
-
-                        logsInBucket.forEach(l => {
-                            const detail = bucket._details[l.level];
-                            if (detail) {
-                                detail.count++;
-                                if (!detail.metrics[l.metric]) detail.metrics[l.metric] = { count: 0, limit: l.limit };
-                                detail.metrics[l.metric].count++;
-                            }
-                        });
-
-                        // Yüzdeleri hesapla
-                        if (totalLogs > 0) {
-                            Object.keys(bucket._details).forEach(level => {
-                                bucket._details[level].percent = Math.round((bucket._details[level].count / totalLogs) * 100);
-                            });
-                        }
-                    });
-                }
-
-                ui.renderLogHistogram(histogram);
                 ui.applyLocalLogFilters();
-                
-                Swal.close();
+                ui.renderLogPagination();
             } catch (e) {
-                Swal.close();
-                Swal.fire({ icon: 'error', text: e.message || 'Veri çekilirken hata oluştu.' });
+                Swal.fire({ icon: 'error', text: 'Loglar yüklenirken hata oluştu: ' + e.message });
             }
+        },
+
+        renderLogPagination: () => {
+            const container = document.getElementById('logPaginationContainer');
+            if (!container) {
+                // Eğer container yoksa (ilk render), logTableContainer'ın altına ekleyelim
+                const tableContainer = document.getElementById('logTableContainer');
+                const pagDiv = document.createElement('div');
+                pagDiv.id = 'logPaginationContainer';
+                pagDiv.className = 'p-3 border-top border-secondary bg-transparent d-flex justify-content-center';
+                tableContainer.parentNode.appendChild(pagDiv);
+            }
+            
+            const totalPages = Math.ceil(ui.logTotalCount / ui.logLimit);
+            const currentPage = Math.floor(ui.logOffset / ui.logLimit) + 1;
+            
+            if (totalPages <= 1) {
+                document.getElementById('logPaginationContainer').innerHTML = '';
+                return;
+            }
+
+            renderPagination('logPaginationContainer', currentPage, ui.logTotalCount, ui.logLimit, 'ui.changeLogPage');
+        },
+
+        changeLogPage: async (page) => {
+            const newOffset = (page - 1) * ui.logLimit;
+            Swal.fire({ title: 'Yükleniyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+            await ui.fetchPaginatedLogs(newOffset);
+            Swal.close();
+            // Tabloyu başa sar
+            document.getElementById('logTableContainer').scrollTop = 0;
         },
 
         renderLogHistogram: (data) => {
@@ -3610,6 +3706,9 @@
                                 dateEnd = new Date(dateStart.getTime() + 60000);
                             }
 
+                            if (!ui.currentLogTimeFilter) {
+                                ui.savedLogOffset = ui.logOffset;
+                            }
                             ui.currentLogTimeFilter = { start: dateStart, end: dateEnd };
                             
                             const fmt = (dt) => dt.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' }) + ' ' + dt.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
@@ -3619,11 +3718,14 @@
                                     <span class="badge bg-info text-dark d-flex align-items-center gap-2 py-2 px-3 shadow-sm animate__animated animate__fadeIn" style="font-size: 0.75rem; border-radius: 20px;">
                                         <i class="bi bi-clock-history"></i> 
                                         <span class="fw-bold">${fmt(dateStart)} - ${fmt(dateEnd)}</span>
-                                        <i class="bi bi-x-circle-fill ms-1 cursor-pointer" onclick="ui.clearLogTimeFilter()" title="Filtreyi Kaldır" style="font-size: 1rem;"></i>
+                                        <i class="bi bi-x-circle-fill ms-1 cursor-pointer" onclick="event.stopPropagation(); ui.clearLogTimeFilter()" title="Filtreyi Kaldır" style="font-size: 1.2rem; color: #ef4444;"></i>
                                     </span>`;
                                 badge.style.display = 'block';
                             }
-                            ui.applyLocalLogFilters();
+                            
+                            // Histogram sütununa basınca ilk 500 veriyi getir (Reset pagination)
+                            Swal.fire({ title: 'Loglar Getiriliyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+                            ui.fetchPaginatedLogs(0).then(() => Swal.close());
                         }
                     },
                     interaction: { mode: 'index', intersect: false },
@@ -3665,11 +3767,12 @@
                                 },
                                 label: (item) => {
                                     const d = data[item.dataIndex];
-                                    if (!d || !d._details) return `${item.dataset.label}: ${item.raw || 0} adet`;
+                                    if (!d || !d.details) return `${item.dataset.label}: ${item.raw || 0} adet`;
                                     
-                                    const levelDetail = d._details[item.dataset.label];
+                                    const levelKey = item.dataset.label.toLowerCase();
+                                    const levelDetail = d.details[levelKey];
                                     const count = levelDetail ? levelDetail.count : 0;
-                                    if (count === 0) return null; // Sadece veri olan seviyeleri gösterelim
+                                    if (count === 0) return null; 
 
                                     const lines = [];
                                     let header = item.dataset.label;
@@ -3680,15 +3783,17 @@
                                     
                                     lines.push(`${header} ${count} adet`);
 
-                                    const metrics = levelDetail.metrics;
+                                    const metrics = levelDetail.metrics || {};
                                     const parts = [];
-                                    if (metrics['RAM'] && metrics['RAM'].count > 0) parts.push(`Ram: ${metrics['RAM'].count}`);
-                                    if (metrics['CPU'] && metrics['CPU'].count > 0) parts.push(`CPU: ${metrics['CPU'].count}`);
                                     
-                                    // Diskleri filtrele
+                                    // RAM ve CPU'yu özel olarak kontrol et (büyük/küçük harf duyarlılığına dikkat)
+                                    if (metrics['RAM'] > 0) parts.push(`Ram: ${metrics['RAM']}`);
+                                    if (metrics['CPU'] > 0) parts.push(`CPU: ${metrics['CPU']}`);
+                                    
+                                    // Diğer metrikleri (Diskler) ekle
                                     Object.keys(metrics).forEach(m => {
-                                        if (m.startsWith('Disk') && metrics[m].count > 0) {
-                                            parts.push(`${m}: ${metrics[m].count}`);
+                                        if (m !== 'RAM' && m !== 'CPU' && metrics[m] > 0) {
+                                            parts.push(`${m}: ${metrics[m]}`);
                                         }
                                     });
 
@@ -3712,43 +3817,74 @@
         debounceFilter: () => {
             clearTimeout(ui.filterTimeout);
             ui.filterTimeout = setTimeout(() => {
-                ui.applyLocalLogFilters();
+                ui.changeFilter();
             }, 300); // 300ms bekle (yazma bitince çalışır)
         },
 
+        getLogFilters: () => {
+            const levels = [];
+            if (document.getElementById('filterCritical')?.checked) levels.push('Critical');
+            if (document.getElementById('filterWarning')?.checked) levels.push('Warning');
+            if (document.getElementById('filterInfo')?.checked) levels.push('Info');
+            
+            const metrics = [];
+            if (document.getElementById('filterCpu')?.checked) metrics.push('CPU');
+            if (document.getElementById('filterRam')?.checked) metrics.push('RAM');
+            if (document.getElementById('filterDisk')?.checked) metrics.push('Disk');
+            
+            return { 
+                levels: levels.join(','), 
+                metrics: metrics.join(','),
+                levelCount: levels.length,
+                metricCount: metrics.length
+            };
+        },
+
+        changeFilter: () => {
+            const filters = ui.getLogFilters();
+            // Sadece HER İKİ kategori de tamamen boşsa engelle
+            if (filters.levelCount === 0 && filters.metricCount === 0) {
+                ui.allLogs = [];
+                ui.filteredLogs = [];
+                ui.logTotalCount = 0;
+                ui.renderLogFlow();
+                ui.renderLogPagination();
+                return;
+            }
+
+            Swal.fire({ title: 'Filtreleniyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+            ui.fetchPaginatedLogs(0).then(() => {
+                Swal.close();
+            });
+        },
+
         applyLocalLogFilters: () => {
-            const searchTerm = document.getElementById('logSearchInput').value.toLowerCase();
-            const filterCpu = document.getElementById('filterCpu').checked;
-            const filterRam = document.getElementById('filterRam').checked;
-            const filterDisk = document.getElementById('filterDisk').checked;
-            const filterCritical = document.getElementById('filterCritical').checked;
-            const filterWarning = document.getElementById('filterWarning').checked;
-            const filterInfo = document.getElementById('filterInfo').checked;
-
+            const searchTerm = (document.getElementById('logSearchInput')?.value || "").toLowerCase();
+            
+            // Diğer filtreler (Level, Metric) artık server-side yapıldığı için 
+            // burada sadece search box filtresini uyguluyoruz.
             const filtered = ui.allLogs.filter(l => {
-                if (ui.currentLogTimeFilter) {
-                    const logTs = new Date(l.timestamp).getTime();
-                    if (logTs < ui.currentLogTimeFilter.start.getTime() || logTs >= ui.currentLogTimeFilter.end.getTime()) {
-                        return false;
-                    }
-                }
-
-                if (l.metric === "CPU" && !filterCpu) return false;
-                if (l.metric === "RAM" && !filterRam) return false;
-                if (l.metric.startsWith("Disk") && !filterDisk) return false;
-
-                if (l.level === "Critical" && !filterCritical) return false;
-                if (l.level === "Warning" && !filterWarning) return false;
-                if (l.level === "Info" && !filterInfo) return false;
-
                 if (searchTerm && !l._searchBuffer.includes(searchTerm)) return false;
-
                 return true;
             });
 
             ui.filteredLogs = filtered;
             ui.logRenderIndex = 0;
             ui.renderLogFlow();
+        },
+
+        clearLogTimeFilter: () => {
+            ui.currentLogTimeFilter = null;
+            const badge = document.getElementById('activeLogTimeFilter');
+            if (badge) { badge.style.display = 'none'; badge.innerHTML = ''; }
+            
+            // Filtreyi kaldırınca önceki sayfa/offset'e dön
+            const offset = ui.savedLogOffset || 0;
+            Swal.fire({ title: 'Loglar Sıfırlanıyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+            ui.fetchPaginatedLogs(offset).then(() => {
+                ui.savedLogOffset = 0;
+                Swal.close();
+            });
         },
 
         handleLogScroll: () => {
@@ -3765,10 +3901,15 @@
             if (!tbody) return;
 
             const logs = ui.filteredLogs;
-            badge.innerText = `${logs.length} Olay`;
+            badge.innerText = `${ui.logTotalCount} Olay (Toplam)`;
             
             if (logs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-muted">Arama kriterlerine uygun sonuç bulunamadı.</td></tr>';
+                const filters = ui.getLogFilters();
+                if (filters.levelCount === 0 && filters.metricCount === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-warning"><i class="bi bi-exclamation-triangle me-2"></i> Lütfen en az bir metrik veya seviye filtresini aktif hale getirin.</td></tr>';
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-muted">Arama kriterlerine uygun sonuç bulunamadı.</td></tr>';
+                }
                 return;
             }
 
@@ -3818,7 +3959,14 @@
                 badge.style.display = 'none';
                 badge.innerHTML = '';
             }
-            ui.applyLocalLogFilters();
+            
+            // Filtreyi kaldırınca önceki sayfa/offset'e dön
+            const offset = ui.savedLogOffset || 0;
+            Swal.fire({ title: 'Loglar Sıfırlanıyor...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+            ui.fetchPaginatedLogs(offset).then(() => {
+                ui.savedLogOffset = 0;
+                Swal.close();
+            });
         },
 
         downloadLogCsv: async () => {

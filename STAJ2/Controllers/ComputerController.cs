@@ -226,6 +226,24 @@ public class ComputerController : ControllerBase
         return Ok(result.Data);
     }
 
+    [HttpGet("{id:int}/logs/histogram")]
+    [HasPermission(AppPermissions.Computer_Read)]
+    public async Task<IActionResult> GetLogHistogram(int id, [FromQuery] string start, [FromQuery] string end, [FromQuery] string? levels = null, [FromQuery] string? metrics = null, [FromQuery] string? search = null)
+    {
+        var result = await _computerService.GetLogHistogramDataAsync(id, start, end, GetUserId(), IsAdmin(), levels, metrics, search);
+        if (!result.IsSuccess) return BadRequest(new { message = result.Message });
+        return Ok(result.Data);
+    }
+
+    [HttpGet("{id:int}/logs/paginated")]
+    [HasPermission(AppPermissions.Computer_Read)]
+    public async Task<IActionResult> GetPaginatedLogs(int id, [FromQuery] string start, [FromQuery] string end, [FromQuery] int offset = 0, [FromQuery] int limit = 500, [FromQuery] string? levels = null, [FromQuery] string? metrics = null, [FromQuery] string? search = null)
+    {
+        var result = await _computerService.GetPaginatedLogsAsync(id, start, end, offset, limit, GetUserId(), IsAdmin(), levels, metrics, search);
+        if (!result.IsSuccess) return BadRequest(new { message = result.Message });
+        return Ok(result.Data);
+    }
+
     [HttpPost("{id:int}/logs/export-token")]
     [HasPermission(AppPermissions.Computer_Read)]
     public async Task<IActionResult> GenerateExportToken(int id, [FromQuery] string start, [FromQuery] string end)
