@@ -6,6 +6,14 @@ let historyCharts = { cpu: null, ram: null, disks: {} };
 let chartSettings = { defaultMaxPoints: 200, detailMaxPoints: 1000 }; // Fallback defaults
 let currentHistoryData = { cpuRam: [], disks: [] };
 
+// --- CANLI GRAFİKLER İÇİN ---
+let liveCharts = {};
+let lastLivePage = -1; 
+let liveChartDataPoints = 12; 
+let agentLastProcessedTs = {}; 
+let agentIntervals = {}; // Cihazların veri gönderme sıklığını (ms) saklamak için
+let lastPointAddedTime = {}; // Grafiğe en son ne zaman nokta (veri veya null) eklendiği
+
 // --- İki sekme için ayrı etiket dizileri ---
 let selectedLiveTags = [];
 let selectedAllTags = [];
@@ -115,10 +123,26 @@ function renderTable() {
     const startIndex = (currentLivePage - 1) * itemsPerPage;
     const paginatedAgents = liveAndFilteredAgents.slice(startIndex, startIndex + itemsPerPage);
 
-    container.innerHTML = paginatedAgents.map(a => {
+    // Sayfa değiştiyse eski grafikleri temizle ve gridi boşalt
+    if (lastLivePage !== currentLivePage) {
+        Object.values(liveCharts).forEach(c => c.destroy());
+        liveCharts = {};
+        container.innerHTML = "";
+        lastLivePage = currentLivePage;
+    }
+
+    // Mevcut kartları güncelle veya yeni kart ekle
+    paginatedAgents.forEach(a => {
+        let cardEl = document.getElementById(`agent-card-${a.computerId}`);
         const ts = a.ts ? new Date(a.ts).toLocaleString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : "-";
         const tags = (a.tags || []).map(t => `<span class="badge" style="background:var(--bg-hover); color:var(--text-main); border: 1px solid var(--border-color); margin-right:3px;">${t}</span>`).join("");
         const statusClass = 'bg-success';
+        const cpuLimit = a.cpuThreshold || 90;
+        const ramLimit = a.ramThreshold || 90;
+        const cpuUsage = Math.round(a.cpuUsage || 0);
+        const ramUsage = Math.round(a.ramUsage || 0);
+        const cpuColor = getDonutColor(cpuUsage, cpuLimit);
+        const ramColor = getDonutColor(ramUsage, ramLimit);
 
         let actionButtons = '';
         if (canEdit) {
@@ -129,19 +153,12 @@ function renderTable() {
             actionButtons += `</div>`;
         }
 
-        const cpuLimit = a.cpuThreshold || 90;
-        const ramLimit = a.ramThreshold || 90;
-        const cpuUsage = Math.round(a.cpuUsage || 0);
-        const ramUsage = Math.round(a.ramUsage || 0);
-        const cpuColor = getDonutColor(cpuUsage, cpuLimit);
-        const ramColor = getDonutColor(ramUsage, ramLimit);
-
         let sensorsHtml = `
             <div class="col">
                 <div class="p-2 rounded border disk-box d-flex flex-column align-items-center justify-content-center text-center h-100" style="background:var(--bg-hover); border-color:var(--border-color)!important;">
                     <span class="small fw-bold mb-2 text-truncate w-100" style="color:var(--text-main); font-size:0.75rem;"><i class="bi bi-cpu text-primary"></i> CPU</span>
                     <div class="prtg-donut" style="--val: ${cpuUsage}; --donut-color: ${cpuColor};">
-                        <span style="color:var(--text-main);">%${cpuUsage}</span>
+                        <span id="cpu-val-${a.computerId}" style="color:var(--text-main);">%${cpuUsage}</span>
                     </div>
                 </div>
             </div>
@@ -149,7 +166,7 @@ function renderTable() {
                 <div class="p-2 rounded border disk-box d-flex flex-column align-items-center justify-content-center text-center h-100" style="background:var(--bg-hover); border-color:var(--border-color)!important;">
                     <span class="small fw-bold mb-2 text-truncate w-100" style="color:var(--text-main); font-size:0.75rem;"><i class="bi bi-memory text-success"></i> RAM</span>
                     <div class="prtg-donut" style="--val: ${ramUsage}; --donut-color: ${ramColor};">
-                        <span style="color:var(--text-main);">%${ramUsage}</span>
+                        <span id="ram-val-${a.computerId}" style="color:var(--text-main);">%${ramUsage}</span>
                     </div>
                 </div>
             </div>
@@ -158,20 +175,13 @@ function renderTable() {
         if (a.diskUsage && a.diskUsage !== "-") {
             let regex = /([A-Za-z]:[\\/]?)[^\d]*(\d+)/g;
             let match;
-
             while ((match = regex.exec(a.diskUsage)) !== null) {
                 let dName = match[1].replace(/[\\/]/g, '');
                 let dUsage = parseInt(match[2]);
-
                 let diskKey = dName.replace(':', '');
-
                 let diskLimit = 90;
-                if (a.diskThresholds && a.diskThresholds[diskKey] !== undefined) {
-                    diskLimit = a.diskThresholds[diskKey];
-                }
-
+                if (a.diskThresholds && a.diskThresholds[diskKey] !== undefined) diskLimit = a.diskThresholds[diskKey];
                 let dColor = getDonutColor(dUsage, diskLimit);
-
                 sensorsHtml += `
                 <div class="col">
                     <div class="p-2 rounded border disk-box d-flex flex-column align-items-center justify-content-center text-center h-100" style="background:var(--bg-hover); border-color:var(--border-color)!important;">
@@ -184,38 +194,225 @@ function renderTable() {
             }
         }
 
-        return `
-            <div class="col">
-                <div class="card h-100 prtg-card border shadow-sm" style="background:var(--bg-card); border-color:var(--border-color)!important;">
-                    
-                    <div class="card-header border-bottom border-secondary d-flex justify-content-between align-items-center mb-0" style="border-color:var(--border-color)!important; background: transparent; padding-bottom: 0.75rem;">
-                        <div class="d-flex align-items-center gap-2" style="overflow:hidden;">
-                            <span class="status-indicator ${statusClass}"></span>
-                            <div class="text-truncate">
-                                <h6 class="mb-0 fw-bold" style="color:var(--text-title);">${a.displayName || a.machineName}</h6>
-                                <small style="color:var(--text-muted); font-family:monospace; font-size: 0.75rem;">${a.ip || 'IP Yok'}</small>
+        if (!cardEl) {
+            // Yeni kart oluştur
+            const cardHtml = `
+                <div class="col" id="agent-card-${a.computerId}">
+                    <div class="card h-100 prtg-card border shadow-sm" style="background:var(--bg-card); border-color:var(--border-color)!important;">
+                        <div class="card-header border-bottom border-secondary d-flex justify-content-between align-items-center mb-0" style="border-color:var(--border-color)!important; background: transparent; padding-bottom: 0.75rem;">
+                            <div class="d-flex align-items-center gap-2" style="overflow:hidden;">
+                                <span class="status-indicator ${statusClass}"></span>
+                                <div class="text-truncate">
+                                    <h6 class="mb-0 fw-bold card-title" style="color:var(--text-title);">${a.displayName || a.machineName}</h6>
+                                    <small class="card-ip" style="color:var(--text-muted); font-family:monospace; font-size: 0.75rem;">${a.ip || 'IP Yok'}</small>
+                                </div>
                             </div>
+                            <div class="action-btns">${actionButtons}</div>
                         </div>
-                        ${actionButtons}
-                    </div>
+                        <div class="card-body p-3">
+                            <div class="mb-3 d-flex flex-wrap gap-1 card-tags">${tags}</div>
+                            <div class="row row-cols-2 row-cols-sm-3 g-2 sensor-grid">${sensorsHtml}</div>
+                            
+                            <!-- Canlı Grafik Alanı -->
+                            <div class="mt-4 pt-3 border-top border-secondary" style="border-color:var(--border-color)!important;">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <small class="fw-bold" style="font-size:0.65rem; color:var(--text-muted); opacity: 0.8;">
+                                        <i class="bi bi-graph-up"></i> Canlı Grafik
+                                    </small>
+                                    <div class="d-flex gap-2">
+                                        <span class="badge p-0" style="color:#38bdf8; font-size:0.6rem;">● CPU</span>
+                                        <span class="badge p-0" style="color:#10b981; font-size:0.6rem;">● RAM</span>
+                                    </div>
+                                </div>
+                                <div style="height: 140px; position: relative;">
+                                    <canvas id="liveChart_${a.computerId}"></canvas>
+                                </div>
+                            </div>
 
-                    <div class="card-body p-3">
-                        <div class="mb-3 d-flex flex-wrap gap-1">${tags}</div>
-                        
-                        <div class="row row-cols-2 row-cols-sm-3 g-2">
-                            ${sensorsHtml}
-                        </div>
-
-                        <div class="text-end mt-3">
-                            <small style="font-size: 0.65rem; color:var(--text-muted);">Son Veri: ${ts}</small>
+                            <div class="text-end mt-3">
+                                <small class="last-seen" style="font-size: 0.65rem; color:var(--text-muted);">Son Veri: ${ts}</small>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        `;
-    }).join("");
+            `;
+            container.insertAdjacentHTML('beforeend', cardHtml);
+            initLiveChart(a.computerId);
+        } else {
+            // Mevcut kartı güncelle
+            cardEl.querySelector('.card-title').textContent = a.displayName || a.machineName;
+            cardEl.querySelector('.card-ip').textContent = a.ip || 'IP Yok';
+            cardEl.querySelector('.card-tags').innerHTML = tags;
+            cardEl.querySelector('.sensor-grid').innerHTML = sensorsHtml;
+            cardEl.querySelector('.last-seen').textContent = `Son Veri: ${ts}`;
+            cardEl.querySelector('.action-btns').innerHTML = actionButtons;
+
+            // Sadece yeni veri geldiyse grafiği güncelle
+            const currentTs = a.ts ? new Date(a.ts).getTime() : 0;
+            const lastTs = agentLastProcessedTs[a.computerId] || 0;
+
+            if (currentTs > lastTs) {
+                // Interval hesabı (sadece yeni veri geldiğinde)
+                if (lastTs > 0) {
+                    agentIntervals[a.computerId] = currentTs - lastTs;
+                }
+                updateLiveChart(a.computerId, cpuUsage, ramUsage, a.ts);
+                agentLastProcessedTs[a.computerId] = currentTs;
+                lastPointAddedTime[a.computerId] = now;
+            } else {
+                // Kesinti Kontrolü: Eğer beklenen sürenin (interval * 2) üzerinde veri gelmediyse null bas
+                const interval = agentIntervals[a.computerId] || 30000; // Varsayılan 30sn
+                const timeSinceLastPoint = now - (lastPointAddedTime[a.computerId] || now);
+                
+                if (timeSinceLastPoint >= interval * 1.5) {
+                    updateLiveChart(a.computerId, null, null, null); // Kesinti noktası
+                    lastPointAddedTime[a.computerId] = now;
+                }
+            }
+        }
+    });
+
+    // Artık sayfada olmayan kartları ve grafiklerini temizle
+    const currentIds = paginatedAgents.map(a => `agent-card-${a.computerId}`);
+    
+    // 1. Grafik nesnelerini temizle
+    Object.keys(liveCharts).forEach(compId => {
+        if (!currentIds.includes(`agent-card-${compId}`)) {
+            if (liveCharts[compId]) liveCharts[compId].destroy();
+            delete liveCharts[compId];
+        }
+    });
+
+    // 2. DOM elementlerini (kartları) temizle
+    const existingCards = container.querySelectorAll('.col[id^="agent-card-"]');
+    existingCards.forEach(card => {
+        if (!currentIds.includes(card.id)) {
+            card.remove();
+        }
+    });
 
     renderPaginationControls('livePagination', currentLivePage, totalPages, 'changeLivePage');
+}
+
+// --- CANLI GRAFİK YARDIMCI FONKSİYONLARI ---
+
+function initLiveChart(compId) {
+    const ctx = document.getElementById(`liveChart_${compId}`).getContext('2d');
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const gridColor = isLight ? '#e2e8f0' : '#334155';
+    const textColor = isLight ? '#475569' : '#94a3b8';
+
+    liveCharts[compId] = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: Array(12).fill(''), // 5 sn * 12 = 1 dk
+            datasets: [
+                {
+                    label: 'CPU',
+                    data: Array(12).fill(null),
+                    borderColor: '#38bdf8',
+                    backgroundColor: '#38bdf8',
+                    borderWidth: 2,
+                    pointRadius: 2,
+                    pointHoverRadius: 5,
+                    tension: 0.3,
+                    fill: false
+                },
+                {
+                    label: 'RAM',
+                    data: Array(12).fill(null),
+                    borderColor: '#10b981',
+                    backgroundColor: '#10b981',
+                    borderWidth: 2,
+                    pointRadius: 2,
+                    pointHoverRadius: 5,
+                    tension: 0.3,
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: { 
+                legend: { display: false }, 
+                tooltip: { 
+                    enabled: true,
+                    backgroundColor: isLight ? 'rgba(255, 255, 255, 0.9)' : 'rgba(30, 41, 59, 0.9)',
+                    titleColor: isLight ? '#1e293b' : '#f8fafc',
+                    bodyColor: isLight ? '#475569' : '#cbd5e1',
+                    borderColor: isLight ? '#e2e8f0' : '#334155',
+                    borderWidth: 1,
+                    padding: 8,
+                    displayColors: true,
+                    callbacks: {
+                        label: function(context) {
+                            return ` ${context.dataset.label}: %${context.parsed.y}`;
+                        },
+                        title: (items) => items[0].label
+                    }
+                } 
+            },
+            scales: {
+                x: { 
+                    display: true, 
+                    grid: { display: false },
+                    ticks: {
+                        color: textColor,
+                        font: { size: 9, weight: 'bold' },
+                        maxRotation: 90,
+                        minRotation: 90,
+                        autoSkip: false,
+                        padding: 5
+                    }
+                },
+                y: { 
+                    min: 0, max: 100, 
+                    display: true,
+                    grid: { color: gridColor, drawTicks: false },
+                    ticks: { 
+                        display: false,
+                        stepSize: 20
+                    }
+                }
+            },
+            animation: { duration: 800 }
+        }
+    });
+}
+
+function updateLiveChart(compId, cpu, ram, ts) {
+    const chart = liveCharts[compId];
+    if (!chart) return;
+
+    let timeStr = "";
+    if (ts) {
+        const d = new Date(ts);
+        timeStr = d.getHours().toString().padStart(2, '0') + ":" + 
+                  d.getMinutes().toString().padStart(2, '0') + ":" + 
+                  d.getSeconds().toString().padStart(2, '0');
+    } else {
+        const d = new Date();
+        timeStr = "✖ " + d.getHours().toString().padStart(2, '0') + ":" + 
+                  d.getMinutes().toString().padStart(2, '0') + ":" + 
+                  d.getSeconds().toString().padStart(2, '0');
+    }
+
+    // Etiket ve verileri güncelle
+    chart.data.labels.push(timeStr);
+    chart.data.labels.shift();
+
+    chart.data.datasets[0].data.push(cpu);
+    chart.data.datasets[0].data.shift();
+    
+    chart.data.datasets[1].data.push(ram);
+    chart.data.datasets[1].data.shift();
+
+    chart.update('none'); 
 }
 
 // --- 2. YÖNETİM FONKSİYONLARI ---

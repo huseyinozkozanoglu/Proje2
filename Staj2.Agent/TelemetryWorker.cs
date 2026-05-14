@@ -25,7 +25,7 @@ public sealed class TelemetryWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var intervalSeconds = int.TryParse(_config["Agent:IntervalSeconds"], out var s) ? s : 5;
+        var intervalSeconds = int.TryParse(_config["Agent:IntervalSeconds"], out var s) ? s : 30;
         var ingestPath = _config["Agent:IngestPath"] ?? "/api/agent-telemetry";
         var key = _config["Agent:IngestKey"];
 

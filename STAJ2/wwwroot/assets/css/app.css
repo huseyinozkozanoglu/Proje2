@@ -693,3 +693,76 @@ html[data-theme="dark"] .swal2-validation-message {
     #sidebar::-webkit-scrollbar {
         display: none; /* Chrome, Safari ve Opera iÃ§in */
     }
+/* --- Canlý Grafik Paneli (Sliding Panel) --- */
+.prtg-card-inner {
+    display: flex;
+    overflow: hidden;
+    width: 100%;
+}
+
+.live-chart-side-panel {
+    width: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    border-left: 1px solid var(--border-color);
+    background: rgba(15, 23, 42, 0.2);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.prtg-card.expanded {
+    border-color: rgba(56, 189, 248, 0.6) !important;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+}
+
+.prtg-card.expanded .live-chart-side-panel {
+    width: 380px;
+    opacity: 1;
+    padding: 1rem;
+    min-width: 380px;
+}
+
+/* Kartýn geniþlediðinde grid içinde daha fazla yer kaplamasý için */
+@media (min-width: 1200px) {
+    .agent-col.expanded {
+        width: 66.666667% !important; /* 3'lü gridde 2 kolon yer kaplar */
+    }
+}
+
+@media (max-width: 1199px) and (min-width: 992px) {
+    .agent-col.expanded {
+        width: 100% !important; /* 2'li gridde tam yer kaplar */
+    }
+}
+
+.disk-box {
+    cursor: pointer;
+    user-select: none;
+}
+
+.disk-box.active {
+    background: rgba(56, 189, 248, 0.2) !important;
+    border-color: #38bdf8 !important;
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.2);
+}
+
+.live-chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.live-chart-header h6 {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #38bdf8;
+}
+
+.live-chart-canvas-container {
+    flex: 1;
+    position: relative;
+    min-height: 200px;
+}
