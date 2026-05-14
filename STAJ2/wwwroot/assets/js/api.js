@@ -47,7 +47,41 @@
 
                                 if (refreshRes.ok) {
                                     const newData = await refreshRes.json();
+                                    
+                                    // YENİ: Eski yetkileri al
+                                    const oldPerms = [...window.auth.getPermissions()].sort();
+                                    
                                     window.auth.saveAuth(newData.token, null, null, null, newData.refreshToken);
+                                    
+                                    // YENİ: Yeni yetkileri al
+                                    const newPerms = [...window.auth.getPermissions()].sort();
+                                    
+                                    // Karşılaştır
+                                    const isSame = oldPerms.length === newPerms.length && 
+                                                 oldPerms.every((val, index) => val === newPerms[index]);
+
+                                    if (!isSame) {
+                                        Swal.fire({
+                                            title: 'Yetki Değişikliği',
+                                            text: 'Hesap yetkileriniz güncellendiği için sayfa yenilenecektir.',
+                                            icon: 'info',
+                                            timer: 2000,
+                                            showConfirmButton: false
+                                        }).then(async () => {
+                                            try {
+                                                const sidebarItems = await fetch('/api/Ui/sidebar-items', {
+                                                    headers: { "Authorization": `Bearer ${newData.token}` }
+                                                }).then(r => r.json());
+
+                                                const target = window.ui.findDefaultView(sidebarItems);
+                                                sessionStorage.setItem('lastActiveView', target);
+                                            } catch (e) {
+                                                sessionStorage.setItem('lastActiveView', 'no-access');
+                                            }
+                                            window.location.reload();
+                                        });
+                                    }
+
                                     resolve(newData.token);
                                 } else {
                                     reject("Refresh işlemi reddedildi");
@@ -91,9 +125,7 @@
                 }
 
                 if (res.status === 403 && !path.includes('/login')) {
-                    await Swal.fire({ title: errTitle, text: errMsg, icon: 'error' });
-                    window.auth.clearAuth();
-                    window.location.href = "/login.html?reason=forbidden";
+                    await Swal.fire({ title: errTitle || "Yetkisiz Erişim", text: errMsg || "Bu işlem için yetkiniz bulunmuyor.", icon: 'error' });
                     throw { title: errTitle, message: errMsg, isHandled: true };
                 }
 

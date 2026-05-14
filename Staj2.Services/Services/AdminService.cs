@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Staj2.Domain.Entities;
@@ -34,7 +34,8 @@ public class AdminService : BaseService, IAdminService
     public async Task<ServiceResult<object>> GetAllPermissionsAsync()
     {
         var data = await _db.Permissions
-            .Select(p => new { p.Id, p.Name, p.Description })
+            .OrderBy(p => p.OrderIndex)
+            .Select(p => new { p.Id, p.Name, p.Description, p.OrderIndex })
             .ToListAsync();
         return ServiceResult<object>.Success(data);
     }

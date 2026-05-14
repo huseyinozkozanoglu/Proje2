@@ -634,10 +634,22 @@
                 await auth.loadLivePermissions();
             }
 
-            ui.renderSidebar().then(() => {
-                // F5 atıldığında en son kalınan sekmeyi al, yoksa varsayılan 'computers' aç
-                const lastView = sessionStorage.getItem('lastActiveView') || 'computers';
-                ui.switchView(lastView);
+            ui.renderSidebar().then(async () => {
+                // F5 atıldığında en son kalınan sekmeyi al
+                const lastView = sessionStorage.getItem('lastActiveView');
+                
+                // Menü öğelerini kontrol et, yetki değişikliği olmuş olabilir
+                const sidebarItems = await api.get('/api/Ui/sidebar-items');
+                
+                // Eğer son aktif view hala menüdeyse oraya git, yoksa ilk menüye git
+                let isViewAllowed = false;
+                sidebarItems.forEach(item => {
+                    if (item.targetView === lastView) isViewAllowed = true;
+                    if (item.children) item.children.forEach(c => { if (c.targetView === lastView) isViewAllowed = true; });
+                });
+
+                const target = isViewAllowed ? lastView : ui.findDefaultView(sidebarItems);
+                ui.switchView(target);
             });
 
             // --- YENİ EKLENEN KISIM: F5 (Yenileme) Durumunda En Güncel Rolleri Çek ---
@@ -654,8 +666,40 @@
                         throw new Error("Sessiz yenileme başarısız");
                     })
                     .then(newData => {
+                        // YENİ: Eski yetkileri al
+                        const oldPerms = [...window.auth.getPermissions()].sort();
+
                         // Yeni token'ı (ve varsa yeni refresh token'ı) localStorage'a kaydet
                         window.auth.saveAuth(newData.token, null, null, null, newData.refreshToken);
+
+                        // Yeni yetkileri al
+                        const newPerms = [...window.auth.getPermissions()].sort();
+
+                        // Karşılaştır
+                        const isSame = oldPerms.length === newPerms.length &&
+                            oldPerms.every((val, index) => val === newPerms[index]);
+
+                        if (!isSame) {
+                            Swal.fire({
+                                title: 'Yetki Güncellemesi',
+                                text: 'Yetkileriniz değiştiği için sayfa yenilenecektir.',
+                                icon: 'info',
+                                timer: 2000,
+                                showConfirmButton: false
+                            }).then(async () => {
+                                try {
+                                    const sidebarItems = await fetch('/api/Ui/sidebar-items', {
+                                        headers: { "Authorization": `Bearer ${newData.token}` }
+                                    }).then(r => r.json());
+
+                                    const target = window.ui.findDefaultView(sidebarItems);
+                                    sessionStorage.setItem('lastActiveView', target);
+                                } catch (e) {
+                                    sessionStorage.setItem('lastActiveView', 'no-access');
+                                }
+                                window.location.reload();
+                            });
+                        }
 
                         // Yeni token'ın içinden GÜNCEL rolleri oku ve menüdeki yazıyı güncelle
                         const currentRoles = window.auth.getRoles();

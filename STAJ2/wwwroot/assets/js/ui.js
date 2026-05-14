@@ -182,6 +182,19 @@
         }
     }
 
+    /**
+     * Sidebar öğeleri içinden erişilebilen ilk TargetView'i bulur.
+     */
+    function findDefaultView(sidebarItems) {
+        if (!sidebarItems || sidebarItems.length === 0) return 'no-access';
+        
+        const first = sidebarItems[0];
+        if (first.children && first.children.length > 0) {
+            return first.children[0].targetView;
+        }
+        return first.targetView;
+    }
+
     async function switchView(view) {
         // Sayfa değişirken bekleyen tüm backend isteklerini iptal et
         if (window.api && typeof window.api.cancelAllRequests === 'function') {
@@ -226,7 +239,20 @@
             </div>
         <div id="livePagination" class="d-flex justify-content-center mt-4 pb-2"></div>
     `;
-                if (window.loadAgents) loadAgents();
+                if (window.loadAgents && window.auth.hasPermission("Computer.Access")) {
+                    loadAgents();
+                } else if (!window.auth.hasPermission("Computer.Access")) {
+                    content.innerHTML = `
+                        <div class="text-center py-5 mt-5">
+                            <div class="mb-4">
+                                <i class="bi bi-lock text-warning" style="font-size: 4rem; opacity: 0.7;"></i>
+                            </div>
+                            <h4 class="fw-bold" style="color: var(--text-title);">Veri Erişimi Kısıtlı</h4>
+                            <p class="text-muted mx-auto" style="max-width: 450px;">
+                                Cihazların performans verilerini görmek için gerekli veri erişim yetkisine sahip değilsiniz.
+                            </p>
+                        </div>`;
+                }
                 break;
 
             case 'all-computers':
@@ -250,7 +276,20 @@
                         </div>
                         <div id="allPagination" class="d-flex justify-content-center mt-3 pb-2"></div>
                     </div>`;
-                if (window.loadAllComputers) loadAllComputers();
+                if (window.loadAllComputers && window.auth.hasPermission("Computer.Access")) {
+                    loadAllComputers();
+                } else if (!window.auth.hasPermission("Computer.Access")) {
+                    content.innerHTML = `
+                        <div class="text-center py-5 mt-5">
+                            <div class="mb-4">
+                                <i class="bi bi-lock text-warning" style="font-size: 4rem; opacity: 0.7;"></i>
+                            </div>
+                            <h4 class="fw-bold" style="color: var(--text-title);">Veri Erişimi Kısıtlı</h4>
+                            <p class="text-muted mx-auto" style="max-width: 450px;">
+                                Cihaz listesini görüntülemek için gerekli veri erişim yetkisi gereklidir.
+                            </p>
+                        </div>`;
+                }
                 break;
 
             case 'requests':
@@ -320,7 +359,19 @@
             </div>
         </div>
     `;
-                ui.loadTagTable();
+                if (window.auth.hasPermission("Computer.Access")) {
+                    ui.loadTagTable();
+                } else {
+                    const tagCard = content.querySelector('.card-body');
+                    if (tagCard) {
+                        tagCard.innerHTML = `
+                            <div class="text-center py-5">
+                                <i class="bi bi-lock text-warning d-block mb-3" style="font-size: 3rem; opacity: 0.6;"></i>
+                                <h5 class="fw-bold">Erişim Yetkisi Yok</h5>
+                                <p class="text-muted">Etiket yönetimi için veri erişim yetkisi gereklidir.</p>
+                            </div>`;
+                    }
+                }
                 break;
 
             case 'history':
@@ -414,7 +465,30 @@
                 </div>`;
 
                 // Sayfa yüklendiğinde Cihazları dropdown'a dolduracak fonksiyonu çağırıyoruz
-                if (window.ui.loadHistoryComputers) window.ui.loadHistoryComputers();
+                if (window.ui.loadHistoryComputers && window.auth.hasPermission("Computer.Access")) {
+                    window.ui.loadHistoryComputers();
+                } else if (!window.auth.hasPermission("Computer.Access")) {
+                    // Kontrol panelini temizle
+                    const controlPanel = content.querySelector('.card-body');
+                    if (controlPanel) {
+                        controlPanel.innerHTML = `
+                            <div class="text-center py-4">
+                                <i class="bi bi-lock text-warning d-block mb-2" style="font-size: 2rem;"></i>
+                                <h6 class="fw-bold">Yetki Gerekli</h6>
+                                <p class="small text-muted mb-0">Metrik analizi için veri erişimi yetkisi gereklidir.</p>
+                            </div>`;
+                    }
+                    // Ana alanı temizle
+                    const placeholder = document.getElementById('historyPlaceholder');
+                    if (placeholder) {
+                        placeholder.innerHTML = `
+                            <div class="text-center py-5 mt-5">
+                                <i class="bi bi-shield-lock text-warning display-1 opacity-50 mb-4"></i>
+                                <h4 class="fw-bold">Veri Erişimi Kısıtlı</h4>
+                                <p class="text-muted">Geçmiş performans verilerini incelemek için gerekli veri erişim yetkisine sahip değilsiniz.</p>
+                            </div>`;
+                    }
+                }
                 break;
 
             case 'log-management':
@@ -529,7 +603,28 @@
                         </div>
                     </div>
                 </div>`;
-                ui.initLogManagementPage();
+                if (window.ui.initLogManagementPage && window.auth.hasPermission("Computer.Access")) {
+                    ui.initLogManagementPage();
+                } else if (!window.auth.hasPermission("Computer.Access")) {
+                     const controlPanel = content.querySelector('.card-body');
+                    if (controlPanel) {
+                        controlPanel.innerHTML = `
+                            <div class="text-center py-4">
+                                <i class="bi bi-lock text-warning d-block mb-2" style="font-size: 2rem;"></i>
+                                <h6 class="fw-bold">Yetki Gerekli</h6>
+                                <p class="small text-muted mb-0">Log analizi için veri erişimi yetkisi gereklidir.</p>
+                            </div>`;
+                    }
+                    const logContainer = document.getElementById('logTableContainer');
+                    if (logContainer) {
+                        logContainer.innerHTML = `
+                            <div class="text-center py-5">
+                                <i class="bi bi-shield-lock text-warning display-4 mb-3"></i>
+                                <h5>Log Verilerine Erişim Kısıtlı</h5>
+                                <p class="text-muted">Bu alanı kullanmak için yetki almanız gerekmektedir.</p>
+                            </div>`;
+                    }
+                }
                 break;
             case 'reports':
                 title.innerText = "Performans Raporları";
@@ -635,7 +730,16 @@
                     </div>
                 </div>`;
 
-                if (window.ui.loadReportsView) window.ui.loadReportsView();
+                if (window.ui.loadReportsView && window.auth.hasPermission("Computer.Access")) {
+                    window.ui.loadReportsView();
+                } else if (!window.auth.hasPermission("Computer.Access")) {
+                    content.innerHTML = `
+                        <div class="text-center py-5 mt-5">
+                            <i class="bi bi-lock text-warning display-1 opacity-50 mb-4"></i>
+                            <h4 class="fw-bold">Rapor Verisi Kısıtlı</h4>
+                            <p class="text-muted">Performans raporlarını görüntülemek için gerekli veri erişim yetkisine sahip değilsiniz.</p>
+                        </div>`;
+                }
                 break;
             case 'threshold-analysis':
                 title.innerText = "Eşik Analiz Raporu";
@@ -784,7 +888,41 @@
                     </div>
                 </div>`;
 
-                if (window.fetchTopWarnings) window.fetchTopWarnings();
+                if (window.fetchTopWarnings && window.auth.hasPermission("Computer.Access")) {
+                    window.fetchTopWarnings();
+                } else if (!window.auth.hasPermission("Computer.Access")) {
+                    content.innerHTML = `
+                        <div class="text-center py-5 mt-5">
+                            <div class="mb-4">
+                                <i class="bi bi-lock text-warning" style="font-size: 4rem; opacity: 0.7;"></i>
+                            </div>
+                            <h4 class="fw-bold" style="color: var(--text-title);">Analiz Verisi Kısıtlı</h4>
+                            <p class="text-muted mx-auto" style="max-width: 450px;">
+                                Uyarı analizlerini ve metrik geçmişini görüntülemek için gerekli veri erişim yetkisine sahip değilsiniz.
+                            </p>
+                        </div>`;
+                }
+                break;
+
+            case 'no-access':
+                title.innerText = "Erişim Kısıtlı";
+                subtitle.innerText = "Görüntüleme yetkiniz bulunan herhangi bir sayfa bulunamadı.";
+                content.innerHTML = `
+                <div class="text-center py-5 mt-5">
+                    <div class="mb-4">
+                        <i class="bi bi-shield-lock-fill text-warning" style="font-size: 6rem; opacity: 0.8;"></i>
+                    </div>
+                    <h3 class="fw-bold" style="color: var(--text-title);">Henüz Burada Bir Şey Yok</h3>
+                    <p class="text-muted mx-auto" style="max-width: 500px;">
+                        Sistemde görüntüleme yetkiniz olan bir alan bulunmuyor. 
+                        Lütfen yönetici ile iletişime geçerek gerekli yetkilerin tanımlanmasını isteyiniz.
+                    </p>
+                    <div class="mt-4">
+                        <button class="btn btn-outline-info btn-sm" onclick="window.location.reload()">
+                            <i class="bi bi-arrow-clockwise"></i> Yetkileri Kontrol Et
+                        </button>
+                    </div>
+                </div>`;
                 break;
 
             case 'heatmap':
@@ -1506,7 +1644,9 @@
                     <label class="permission-card d-flex align-items-center w-100 py-2" for="perm_${p.id}">
                         <input class="form-check-input custom-toggle m-0 me-3 flex-shrink-0" type="checkbox" id="perm_${p.id}" value="${p.id}" ${state.assignedIds.includes(p.id) ? 'checked' : ''} onchange="ui.toggleRolePerm(${p.id}, this.checked)">
                         <div class="flex-grow-1" style="min-width: 0;">
-                            <div class="fw-bold" style="color:var(--text-title); font-size:0.9rem; white-space: normal; word-break: normal;">${p.description || p.name}</div>
+                            <div class="fw-bold" style="color:var(--text-title); font-size:0.9rem; white-space: normal; word-break: normal;">
+                                ${p.description ? p.description.replace('(GEREKLİ)', '<span class="badge bg-warning text-dark me-1" style="font-size:0.7rem;">GEREKLİ</span>') : p.name}
+                            </div>
                         </div>
                     </label>
                 </div>`).join('');
@@ -1804,7 +1944,9 @@
                ${state.assignedIds.includes(p.id) ? 'checked' : ''} 
                onchange="ui.toggleNewRolePerm(${p.id}, this.checked)">
         <div class="flex-grow-1" style="min-width: 0;">
-            <div class="fw-bold" style="color:var(--text-title); font-size:0.9rem;">${p.description || p.name}</div>
+            <div class="fw-bold" style="color:var(--text-title); font-size:0.85rem; white-space: normal; word-break: normal;">
+                ${p.description ? p.description.replace('(GEREKLİ)', '<span class="badge bg-warning text-dark me-1" style="font-size:0.65rem;">GEREKLİ</span>') : p.name}
+            </div>
         </div>
     </label>
 </div>`).join('');
@@ -4306,8 +4448,8 @@
                     }
                 });
             });
-        }
-        
+        },
+        findDefaultView: findDefaultView
     };
     window.ui = ui;
     window.warningData = { cpu: [], ram: [], disk: [] };
@@ -4503,6 +4645,7 @@
         window.warningPages[type] = newPage;
         window.renderPaginatedWarningList(type);
     };
+
 
     // --- Tema Başlatma (Sayfa Yüklenince) ---
     (function initTheme() {

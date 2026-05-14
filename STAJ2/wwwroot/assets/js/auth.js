@@ -3,8 +3,8 @@
     const TOKEN_KEY = "staj2_token";
     let livePermissions = null;
     // JWT Token'ı güvenli okumak için yardımcı fonksiyon (hasPermission'daki mantığının aynısı, Türkçe karakter destekli)
-    function decodeTokenSafe() {
-        const token = localStorage.getItem(TOKEN_KEY);
+    function decodeTokenSafe(tokenOverride) {
+        const token = tokenOverride || localStorage.getItem(TOKEN_KEY);
         if (!token) return null;
         try {
             const base64Url = token.split('.')[1];
@@ -35,6 +35,9 @@
             // Eskileri temizle
             localStorage.removeItem("staj2_roles");
             localStorage.removeItem("staj2_permissions");
+
+            // YENİ: Canlı yetki önbelleğini temizle ki yeni tokendakiler okunsun
+            livePermissions = null;
         },
         clearAuth: () => {
             localStorage.removeItem(TOKEN_KEY);

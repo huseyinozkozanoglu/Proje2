@@ -2374,8 +2374,9 @@ $(document).ready(function () {
             }
         }, 50);
     });
-
-    window.loadFilterTags();
+    if (window.auth.hasPermission("Computer.Access")) {
+        window.loadFilterTags();
+    }
 
     // Chart ayarlarını çek
     api.get('/api/Ui/chart-settings').then(settings => {
@@ -2383,19 +2384,24 @@ $(document).ready(function () {
     }).catch(e => console.error("Chart ayarları yüklenemedi:", e));
 
     // Uygulama ilk açıldığında çalıştır
-    loadAgents();
+    if (window.auth.hasPermission("Computer.Access")) {
+        loadAgents();
+    }
 
     // Her 5 saniyede bir kullanıcının bulunduğu aktif sekmeyi arka planda (F5 olmadan) yenile
     setInterval(() => {
         const isLiveTab = document.getElementById('nav-computers') && document.getElementById('nav-computers').classList.contains('active');
         const isAllTab = document.getElementById('nav-all-computers') && document.getElementById('nav-all-computers').classList.contains('active');
 
-        window.loadFilterTags();
-
-        if (isLiveTab) {
-            loadAgents();
-        } else if (isAllTab) {
-            if (typeof loadAllComputers === "function") loadAllComputers();
+        // Sadece yetkili ve ilgili sekmedeyse istek at
+        if ((isLiveTab || isAllTab) && window.auth.hasPermission("Computer.Access")) {
+            window.loadFilterTags();
+            
+            if (isLiveTab) {
+                loadAgents();
+            } else if (isAllTab) {
+                if (typeof loadAllComputers === "function") loadAllComputers();
+            }
         }
     }, 5000);
 });

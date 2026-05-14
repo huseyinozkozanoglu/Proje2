@@ -1,10 +1,12 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 using Staj2.Services.Models.Agent;
 using Staj2.Services.Interfaces;
 
 namespace STAJ2.Controllers;
+
+using STAJ2.Authorization;
 
 [ApiController]
 [Route("api/agent-telemetry")]
@@ -60,7 +62,7 @@ public class AgentTelemetryController : ControllerBase
     }
 
     [HttpGet("latest")]
-    [Authorize]
+    [HasPermission(AppPermissions.Computer_Access)]
     public async Task<IActionResult> Latest()
     {
         var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -80,7 +82,7 @@ public class AgentTelemetryController : ControllerBase
     }
 
     [HttpGet("top-warnings")]
-    [Authorize]
+    [HasPermission(AppPermissions.Computer_Access)]
     public async Task<IActionResult> GetTopWarnings(DateTime? startDate, DateTime? endDate) // Parametreleri buradan alıyoruz
     {
         var userId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "0");

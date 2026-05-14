@@ -27,29 +27,37 @@ public static class DbSeeder
             await context.SaveChangesAsync();
         }
 
-        // --- 2. SİSTEM YETKİLERİNİ (PERMISSIONS) EKLE (Description KALDIRILDI) ---
+        // --- 2. SİSTEM YETKİLERİNİ (PERMISSIONS) EKLE ---
         var defaultPermissions = new List<Permission>
         {
-            new Permission { Name = "Computer.Read", Description = "Cihazları Görüntüleyebilir" },
-            new Permission { Name = "Computer.Delete", Description = "Cihaz Silebilir" },
-            new Permission { Name = "Computer.Rename", Description = "Cihaz İsmi Değiştirebilir" },
-            new Permission { Name = "Computer.SetThreshold", Description = "Cihaz Eşik Değeri Belirleyebilir" },
-            new Permission { Name = "Computer.AssignTag", Description = "Cihazlara Etiket Ekleyebilir ve Çıkarabilir" },
-            new Permission { Name = "Computer.Filter", Description = "Cihazları ve Metrikleri Filtreleyebilir" },
-            new Permission { Name = "Role.Manage", Description = "Sistem Rollerini ve Yetkilerini Yönetebilir" },
-            new Permission { Name = "Tag.Manage", Description = "Etiketleri Yönetebilir" },
-            new Permission { Name = "User.Manage", Description = "Kullanıcı Kayıtlarını Onaylayabilir/Yönetebilir" },
-            new Permission { Name = "User.Read", Description = "Kullanıcıları Listeler (Görüntüleme)" },
-            new Permission { Name = "User.ManageRoles", Description = "Kullanıcı Rollerini Değiştirebilir" },
-            new Permission { Name = "User.ManageComputers", Description = "Kullanıcının Cihaz Erişimlerini Değiştirebilir" },
-            new Permission { Name = "User.ManageTags", Description = "Kullanıcının Etiket Erişimlerini Değiştirebilir" }
+            new Permission { Name = "Computer.Read", Description = "Canlı İzleme Ekranını Açabilir", OrderIndex = 20 },
+            new Permission { Name = "Computer.ReadAll", Description = "Tüm Cihaz Listesini Görüntüleyebilir", OrderIndex = 30 },
+            new Permission { Name = "Computer.ReadReports", Description = "Raporlama Panellerini Görüntüleyebilir", OrderIndex = 80 },
+            new Permission { Name = "Computer.Access", Description = "(GEREKLİ) Sistem Genelinde Bilgisayar Verilerine Erişebilir", OrderIndex = 10 },
+            new Permission { Name = "Computer.Delete", Description = "Cihaz Silebilir", OrderIndex = 40 },
+            new Permission { Name = "Computer.Rename", Description = "Cihaz İsmi Değiştirebilir", OrderIndex = 50 },
+            new Permission { Name = "Computer.SetThreshold", Description = "Cihaz Eşik Değeri Belirleyebilir", OrderIndex = 60 },
+            new Permission { Name = "Computer.AssignTag", Description = "Cihazlara Etiket Ekleyebilir ve Çıkarabilir", OrderIndex = 70 },
+            new Permission { Name = "Tag.Manage", Description = "Etiketleri Yönetebilir", OrderIndex = 150 },
+            new Permission { Name = "User.Read", Description = "Kullanıcıları Listeler (Görüntüleme)", OrderIndex = 100 },
+            new Permission { Name = "User.Manage", Description = "Kullanıcı Kayıtlarını Onaylayabilir/Yönetebilir", OrderIndex = 90 },
+            new Permission { Name = "User.ManageRoles", Description = "Kullanıcı Rollerini Değiştirebilir", OrderIndex = 110 },
+            new Permission { Name = "User.ManageComputers", Description = "Kullanıcının Cihaz Erişimlerini Değiştirebilir", OrderIndex = 120 },
+            new Permission { Name = "User.ManageTags", Description = "Kullanıcının Etiket Erişimlerini Değiştirebilir", OrderIndex = 130 },
+            new Permission { Name = "Role.Manage", Description = "Sistem Rollerini ve Yetkilerini Yönetebilir", OrderIndex = 140 }
         };
 
         foreach (var perm in defaultPermissions)
         {
-            if (!await context.Permissions.AnyAsync(p => p.Name == perm.Name))
+            var existing = await context.Permissions.FirstOrDefaultAsync(p => p.Name == perm.Name);
+            if (existing == null)
             {
                 context.Permissions.Add(perm);
+            }
+            else
+            {
+                existing.Description = perm.Description;
+                existing.OrderIndex = perm.OrderIndex;
             }
         }
         await context.SaveChangesAsync(); // Yetkileri kaydet
@@ -171,53 +179,25 @@ public static class DbSeeder
             { "User.ManageTags", "users" },
             { "Role.Manage", "roles" },
             { "Tag.Manage", "tags" },
-            
-            // YENİ: Raporlama yetkisi (Sadece Parent'ı bağlamamız yeterli, 
-            // UiService çocuklar için otomatik yetki kontrolü yapacak)
-            { "Computer.Read", "reports-parent" }
+            { "Computer.Read", "computers" },
+            { "Computer.ReadAll", "all-computers" },
+            { "Computer.ReadReports", "reports-parent" }
         };
 
         foreach (var mapping in permissionToSidebarMappings)
         {
-            var permission = allPermissions.FirstOrDefault(p => p.Name == mapping.Key);
-            var targetMenu = existingSidebarItems.FirstOrDefault(s => s.TargetView == mapping.Value);
+            var permission = await context.Permissions.FirstOrDefaultAsync(p => p.Name == mapping.Key);
+            var targetMenu = await context.SidebarItems.FirstOrDefaultAsync(s => s.TargetView == mapping.Value);
 
             if (permission != null && targetMenu != null)
             {
-                // Bir yetki birden fazla menüye bağlanamaz (mevcut modelde SidebarItemId tekil)
-                // Ama biz burada her menü için yetki kontrolü yapıyoruz.
-                // Not: Eğer bir yetki zaten bir menüye bağlıysa, başka bir yetki de aynı menüye bağlanabilir.
-                // Ama burada biz yetki üzerinden gidiyoruz.
-                // Eğer Computer.Read yetkisi varsa, tüm raporları açmalı.
-                
-                // SidebarItems tablosunda korumalı olanları işaretlemek için Permission tablosundaki SidebarItemId'leri kullanıyoruz.
-                // Eğer bir menü ID'si Permission tablosunda SidebarItemId olarak varsa, o menü korumalıdır.
-                
                 if (permission.SidebarItemId != targetMenu.Id)
                 {
-                    // Dikkat: Computer.Read gibi genel bir yetkiyi birden fazla menüye bağlayamayız (Permission tablosunda SidebarItemId tekil).
-                    // Bu yüzden yeni bir yaklaşım gerekebilir veya Computer.Read sadece Parent'ı açar, 
-                    // Çocuklar için Permission tablosuna yeni kayıtlar mı eklemeliyiz? 
-                    // Hayır, kullanıcı "Computer.Read yetkisi varsa görebilecek" dedi.
+                    permission.SidebarItemId = targetMenu.Id;
+                    isSidebarUpdated = true;
                 }
             }
         }
-        
-        // KRİTİK: Computer.Read yetkisini Raporlama Üst Menüsüne bağla
-        var compReadPerm = await context.Permissions.FirstOrDefaultAsync(p => p.Name == "Computer.Read");
-        var reportMenu = await context.SidebarItems.FirstOrDefaultAsync(s => s.TargetView == "reports-parent");
-        if (compReadPerm != null && reportMenu != null)
-        {
-            compReadPerm.SidebarItemId = reportMenu.Id;
-            isSidebarUpdated = true;
-        }
-
-        // Alt menüleri de korumalı yapmak için onları da bir yetkiye bağlamalıyız.
-        // Eğer Computer.Read yetkisi tüm raporları açacaksa, alt menüleri de bu yetkiye bağlayalım.
-        // Ancak modelimiz 1 Permission -> 1 SidebarItem şeklinde.
-        // Bu kısıtlamayı aşmak için alt menüleri de korumalı listesine manuel ekleyebiliriz veya
-        // Permission tablosuna her biri için kayıt açabiliriz. 
-        // Ama kullanıcı "Computer.Read varsa görsün" dediği için kod tarafında bunu handle etmek daha mantıklı.
 
         if (isSidebarUpdated)
         {

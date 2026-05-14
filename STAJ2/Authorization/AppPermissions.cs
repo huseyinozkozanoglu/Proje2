@@ -1,4 +1,4 @@
-﻿namespace STAJ2.Authorization;
+namespace STAJ2.Authorization;
 
 public enum AppPermissions
 {
@@ -12,6 +12,7 @@ public enum AppPermissions
     Tag_Manage,
     Computer_AssignTag,
     Computer_Filter,
+    Computer_Access, // YENİ: Bilgisayar temel verilerine erişim (Diğer sayfalar için gerekebilir)
     User_Read,
     User_ManageRoles,
     User_ManageComputers,
