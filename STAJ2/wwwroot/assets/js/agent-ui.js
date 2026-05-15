@@ -2585,20 +2585,33 @@ $(document).ready(function () {
         loadAgents();
     }
 
-    // Her 5 saniyede bir kullanıcının bulunduğu aktif sekmeyi arka planda (F5 olmadan) yenile
+    // 1. Canlı Cihaz Takibi (5 Saniye - Yüksek Öncelikli)
     setInterval(() => {
-        const isLiveTab = document.getElementById('nav-computers') && document.getElementById('nav-computers').classList.contains('active');
-        const isAllTab = document.getElementById('nav-all-computers') && document.getElementById('nav-all-computers').classList.contains('active');
+        // Sekme gizliyse veya yetki yoksa işlem yapma
+        if (document.hidden || !window.auth.hasPermission("Computer.Access")) return;
 
-        // Sadece yetkili ve ilgili sekmedeyse istek at
-        if ((isLiveTab || isAllTab) && window.auth.hasPermission("Computer.Access")) {
-            window.loadFilterTags();
-            
-            if (isLiveTab) {
-                loadAgents();
-            } else if (isAllTab) {
-                if (typeof loadAllComputers === "function") loadAllComputers();
-            }
+        const isLiveTab = document.getElementById('nav-computers')?.classList.contains('active');
+        if (isLiveTab) {
+            loadAgents();
         }
     }, 5000);
+
+    // 2. Genel Güncellemeler (30 Saniye - Düşük Öncelikli)
+    setInterval(() => {
+        // Sekme gizliyse veya yetki yoksa işlem yapma
+        if (document.hidden || !window.auth.hasPermission("Computer.Access")) return;
+
+        const isLiveTab = document.getElementById('nav-computers')?.classList.contains('active');
+        const isAllTab = document.getElementById('nav-all-computers')?.classList.contains('active');
+
+        if (isLiveTab || isAllTab) {
+            // Etiketleri 30 saniyede bir tazele
+            if (typeof window.loadFilterTags === "function") window.loadFilterTags();
+            
+            // Eğer "Tüm Bilgisayarlar" sekmesindeyse listeyi 30 saniyede bir tazele
+            if (isAllTab && typeof loadAllComputers === "function") {
+                loadAllComputers();
+            }
+        }
+    }, 30000);
 });

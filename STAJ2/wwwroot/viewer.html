@@ -45,8 +45,16 @@
             left: 0;
             height: 100vh;
             z-index: 1000;
-            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
             transition: background 0.3s ease;
+        }
+
+        #sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
         }
 
         #main-wrapper {
@@ -269,6 +277,15 @@
                 .select2-results__options::-webkit-scrollbar-thumb:hover {
                     background: #64748b;
                 }
+        /* Sidebar Scrollbar Gizleme */
+        #sidebar-content::-webkit-scrollbar {
+            display: none; /* Chrome, Safari ve Opera */
+        }
+
+        #sidebar-content {
+            -ms-overflow-style: none;  /* IE ve Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
     </style>
 </head>
 <body>
@@ -278,8 +295,11 @@
             <h4 class="fw-bold mb-0" style="color:#38bdf8;"><i class="bi bi-shield-check"></i> STAJ2</h4>
             <small style="color:var(--text-muted);">Monitoring v2.0</small>
         </div>
-        <ul class="nav flex-column mt-3" id="main-nav"></ul>
-        <div style="position: sticky; bottom: 0; width: 100%; background-color: var(--bg-card); z-index: 10; border-top: 1px solid var(--border-color);" class="p-3 user-panel">
+        <div id="sidebar-content">
+            <ul class="nav flex-column mt-3" id="main-nav"></ul>
+        </div>
+
+        <div style="background-color: var(--bg-card); z-index: 10; border-top: 1px solid var(--border-color);" class="p-3 user-panel">
             <div class="d-flex align-items-center gap-2 mb-3">
                 <div class="rounded-circle bg-info d-flex align-items-center justify-content-center text-dark fw-bold" style="width:35px; height:35px;">
                     <i class="bi bi-person"></i>
