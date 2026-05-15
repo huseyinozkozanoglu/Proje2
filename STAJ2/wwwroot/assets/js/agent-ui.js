@@ -1071,24 +1071,51 @@ function createBandChart(canvasId, labelText, labels, avgData, minData, maxData,
                 if (elements.length > 0) {
                     const index = elements[0].index;
                     let startTime, endTime;
+                    
+                    // Veri kaynağını ve geçerlilik kontrolü yapılacak anahtarı belirle
+                    let sourceArray = [];
+                    let valKey = '';
 
                     if (isDrillDown && rawTimes) {
-                        if (avgData[index] == null) return;
-                        startTime = new Date(rawTimes[index]).toISOString();
-                        endTime = (index < rawTimes.length - 1) ? new Date(rawTimes[index + 1]).toISOString() : new Date(new Date(rawTimes[index]).getTime() + 60000).toISOString();
-                        if (new Date(endTime).getTime() - new Date(startTime).getTime() <= 60000) return;
+                        sourceArray = rawTimes.map((t, i) => ({ createdAt: new Date(t).toISOString(), val: avgData[i] }));
+                        valKey = 'val';
                     } else if (diskName) {
-                        const dData = currentHistoryData.disks.filter(d => d.diskName === diskName);
-                        // Gap noktasına (null değerli) tıklanmışsa drill-down açma
-                        if (dData[index] && dData[index].usedAvg == null) return;
-                        startTime = dData[index].createdAt;
-                        endTime = (index < dData.length - 1) ? dData[index + 1].createdAt : (tEndData && tEndData[index] ? new Date(tEndData[index]).toISOString() : new Date(new Date(startTime).getTime() + 60000).toISOString());
+                        sourceArray = (currentHistoryData.disks || []).filter(d => d.diskName === diskName);
+                        valKey = 'usedAvg';
                     } else {
-                        // Gap noktasına (null değerli) tıklanmışsa drill-down açma
-                        if (currentHistoryData.cpuRam[index] && currentHistoryData.cpuRam[index].cpuAvg == null) return;
-                        startTime = currentHistoryData.cpuRam[index].createdAt;
-                        endTime = (index < currentHistoryData.cpuRam.length - 1) ? currentHistoryData.cpuRam[index + 1].createdAt : (tEndData && tEndData[index] ? new Date(tEndData[index]).toISOString() : new Date(new Date(startTime).getTime() + 60000).toISOString());
+                        sourceArray = currentHistoryData.cpuRam || [];
+                        valKey = labelText.includes('CPU') ? 'cpuAvg' : 'ramAvg';
                     }
+
+                    if (!sourceArray[index] || sourceArray[index][valKey] == null) return;
+
+                    // --- ARALIK GENİŞLETME MANTIĞI ---
+                    let startIdx = index;
+                    let endIdx = index;
+
+                    // Geriye doğru boşlukları (null) dahil et
+                    while (startIdx > 0 && sourceArray[startIdx - 1][valKey] == null) {
+                        startIdx--;
+                    }
+                    // İleriye doğru boşlukları (null) dahil et
+                    while (endIdx < sourceArray.length - 1 && sourceArray[endIdx + 1][valKey] == null) {
+                        endIdx++;
+                    }
+
+                    startTime = sourceArray[startIdx].createdAt;
+                    
+                    // Bitiş zamanı için: Bir sonraki geçerli verinin başlangıcı veya tEndData
+                    if (endIdx < sourceArray.length - 1) {
+                        endTime = sourceArray[endIdx + 1].createdAt;
+                    } else {
+                        // Son nokta ise tEndData veya +1dk kullan
+                        endTime = (tEndData && tEndData[endIdx]) 
+                            ? new Date(tEndData[endIdx]).toISOString() 
+                            : new Date(new Date(sourceArray[endIdx].createdAt).getTime() + 60000).toISOString();
+                    }
+
+                    // Minimum süre kontrolü (Drill-down veya tek nokta durumları için)
+                    if (new Date(endTime).getTime() - new Date(startTime).getTime() <= 60000) return;
 
                     window.openBucketDetail(startTime, endTime, labelText, diskName);
                 }
@@ -1903,14 +1930,14 @@ function generateMiniReport(dataList, valueKey, containerId, unit = '%', canvasI
                 <div class="d-flex flex-wrap gap-2">
                     ${top8.map(t => {
             return `
-                        <div class="border border-warning rounded p-2 d-flex flex-column align-items-center justify-content-center shadow-sm flex-grow-1" 
-                             style="background: rgba(255, 193, 7, 0.05); min-width: 120px; cursor: pointer; transition: background 0.2s;"
+                        <div class="border border-warning rounded d-flex flex-column align-items-center justify-content-center shadow-sm flex-grow-1" 
+                             style="background: rgba(255, 193, 7, 0.05); min-width: 105px; padding: 6px 4px; cursor: pointer; transition: background 0.2s;"
                              onclick="window.highlightChartPoint('${canvasId}', '${t[maxKey + 'Time'] || t.createdAt}', 'peak')"
                              onmouseover="this.style.background='rgba(255, 193, 7, 0.2)'"
                              onmouseout="this.style.background='rgba(255, 193, 7, 0.05)'"
                              title="Grafikte göster">
-                            <span class="fw-bold text-warning" style="font-size: 1rem;">${(t[maxKey] != null ? t[maxKey] : t[valueKey]).toFixed(1)}${unit}</span>
-                            <span style="font-size: 0.75rem; margin-top: 2px; color: var(--text-muted); text-align: center;">${formatDate(t[maxKey + 'Time'] || t.createdAt)}</span>
+                            <span class="fw-bold text-warning" style="font-size: 0.95rem;">${(t[maxKey] != null ? t[maxKey] : t[valueKey]).toFixed(1)}${unit}</span>
+                            <span style="font-size: 0.65rem; margin-top: 1px; color: var(--text-muted); text-align: center; white-space: nowrap;">${formatDate(t[maxKey + 'Time'] || t.createdAt)}</span>
                         </div>
                         `;
         }).join('')}
@@ -2309,29 +2336,14 @@ window.toggleAverageLine = function (canvasId, avgValue) {
 
     if (!chartInstance) return;
 
-    // Eğer zaten bu değer varsa veya herhangi bir ortalama çizgisi varsa kaldır
-    const avgDatasetIndex = chartInstance.data.datasets.findIndex(ds => ds.label === 'Ortalama Değer');
-
-    if (avgDatasetIndex > -1) {
-        chartInstance.data.datasets.splice(avgDatasetIndex, 1);
+    if (chartInstance._averageLineValue !== undefined) {
         delete chartInstance._averageLineValue;
+        // Eski sürümden kalan legend dataset'i varsa temizle
+        const avgDatasetIndex = chartInstance.data.datasets.findIndex(ds => ds.label === 'Ortalama Değer');
+        if (avgDatasetIndex > -1) chartInstance.data.datasets.splice(avgDatasetIndex, 1);
     } else {
         // Değeri plugin kullanımı için sakla
         chartInstance._averageLineValue = avgValue;
-
-        // Legend'da görünmesi için içi boş ama ayarları yapılmış bir dataset ekliyoruz
-        chartInstance.data.datasets.push({
-            type: 'line',
-            label: 'Ortalama Değer',
-            data: [], // Veri yok, plugin çizecek (baştan sona gitmesi için)
-            borderColor: '#0dcaf0',
-            borderWidth: 2,
-            borderDash: [10, 5],
-            pointRadius: 0,
-            fill: false,
-            tension: 0,
-            order: 0
-        });
     }
 
     chartInstance.update();
