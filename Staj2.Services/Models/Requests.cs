@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 
 namespace Staj2.Services.Models
 {
@@ -26,7 +27,7 @@ namespace Staj2.Services.Models
     public class RejectRegistrationRequest
     {
         public int RequestId { get; set; }
-        public string RejectionReason { get; set; }
+        public string RejectionReason { get; set; } = null!;
     }
     public class UpdateComputerTagsRequest { public List<string> Tags { get; set; } = new(); }
     public class AssignComputersToTagRequest
@@ -38,11 +39,11 @@ namespace Staj2.Services.Models
         [Required(ErrorMessage = "Kullanıcı adı zorunludur.")]
         [StringLength(50, MinimumLength = 3, ErrorMessage = "Kullanıcı adı 3 ile 50 karakter arasında olmalıdır.")]
         [RegularExpression(@"^[a-zA-Z0-9_]+$", ErrorMessage = "Kullanıcı adı sadece harf, rakam ve alt çizgi içerebilir.")]
-        public string Username { get; set; }
+        public string Username { get; set; } = null!;
 
         [Required(ErrorMessage = "Email adresi zorunludur.")]
         [EmailAddress(ErrorMessage = "Geçerli bir email adresi giriniz.")]
         [StringLength(100, ErrorMessage = "Email adresi çok uzun.")]
-        public string Email { get; set; }
+        public string Email { get; set; } = null!;
     }
 }

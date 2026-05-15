@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Staj2.Domain.Common;
 using Staj2.Domain.Entities;
@@ -11,9 +11,9 @@ namespace Staj2.Infrastructure.Data
 {
     public class AppDbContext : DbContext
     {
-        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly IHttpContextAccessor? _httpContextAccessor;
 
-        public AppDbContext(DbContextOptions<AppDbContext> options, IHttpContextAccessor httpContextAccessor = null) : base(options)
+        public AppDbContext(DbContextOptions<AppDbContext> options, IHttpContextAccessor? httpContextAccessor = null) : base(options)
         {
             _httpContextAccessor = httpContextAccessor;
         }
@@ -124,6 +124,11 @@ namespace Staj2.Infrastructure.Data
             modelBuilder.Entity<UserComputerAccess>().HasQueryFilter(uca => !uca.IsDeleted);
             modelBuilder.Entity<UserTagAccess>().HasQueryFilter(uta => !uta.IsDeleted);
             modelBuilder.Entity<RolePermission>().HasQueryFilter(rp => !rp.IsDeleted);
+            modelBuilder.Entity<ComputerDisk>().HasQueryFilter(cd => !cd.Computer.IsDeleted);
+            modelBuilder.Entity<ComputerMetric>().HasQueryFilter(cm => !cm.Computer.IsDeleted);
+            modelBuilder.Entity<MetricWarningLog>().HasQueryFilter(mwl => !mwl.Computer.IsDeleted);
+            modelBuilder.Entity<RefreshToken>().HasQueryFilter(rt => !rt.User.IsDeleted);
+            modelBuilder.Entity<DiskMetric>().HasQueryFilter(dm => !dm.ComputerDisk.Computer.IsDeleted);
             // --- İLİŞKİLER VE ARA TABLOLAR ---
 
             modelBuilder.Entity<RolePermission>()
@@ -161,7 +166,7 @@ namespace Staj2.Infrastructure.Data
                 .HasMany(u => u.Roles)
                 .WithMany(r => r.Users)
                 .UsingEntity<UserRole>(
-                    j => j.HasOne(ur => ur.Role).WithMany().HasForeignKey(ur => ur.RoleId),
+                    j => j.HasOne(ur => ur.Role).WithMany(r => r.UserRoles).HasForeignKey(ur => ur.RoleId),
                     j => j.HasOne(ur => ur.User).WithMany().HasForeignKey(ur => ur.UserId),
                     j =>
                     {

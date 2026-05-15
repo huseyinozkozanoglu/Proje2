@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace Staj2.Domain.Entities
 {
@@ -8,6 +8,6 @@ namespace Staj2.Domain.Entities
 
         [Required]
         [MaxLength(50)]
-        public string Name { get; set; } // "CPU", "RAM", "Disk" vb.
+        public string Name { get; set; } = null!; // "CPU", "RAM", "Disk" vb.
     }
 }

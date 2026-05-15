@@ -1,4 +1,4 @@
-﻿using Staj2.Domain.Common;
+using Staj2.Domain.Common;
 
 namespace Staj2.Domain.Entities
 {
@@ -7,7 +7,7 @@ namespace Staj2.Domain.Entities
         public int Id { get; set; }
 
         // Rol adı için maks 20 karakter sınırını AppDbContext'te belirtmiştik.
-        public string Name { get; set; }
+        public string Name { get; set; } = null!;
         public string? Description { get; set; }
 
         // ICreatableEntity (int? olarak düzeltildi)

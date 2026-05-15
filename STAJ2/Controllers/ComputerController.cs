@@ -120,6 +120,9 @@ public class ComputerController : ControllerBase
     [HasPermission(AppPermissions.Computer_Access)]
     public async Task<IActionResult> GetMetricsHistory(int id, [FromQuery] string? start, [FromQuery] string? end, [FromQuery] int? maxPoints = null)
     {
+        if (string.IsNullOrEmpty(start) || string.IsNullOrEmpty(end))
+            return BadRequest(new { message = "Başlangıç ve bitiş tarihleri gereklidir.", title = "Uyarı" });
+
         var result = await _computerService.GetMetricsHistoryAsync(id, start, end, maxPoints);
 
         if (!result.IsSuccess)
@@ -133,6 +136,8 @@ public class ComputerController : ControllerBase
     public async Task<IActionResult> GetMetricsHistoryBatch([FromQuery] string ids, [FromQuery] string? start, [FromQuery] string? end, [FromQuery] string metric, [FromQuery] int? maxPoints = null)
     {
         if (string.IsNullOrEmpty(ids)) return BadRequest(new { message = "Cihaz ID'leri boş olamaz." });
+        if (string.IsNullOrEmpty(start) || string.IsNullOrEmpty(end))
+            return BadRequest(new { message = "Başlangıç ve bitiş tarihleri gereklidir.", title = "Uyarı" });
         
         var idList = ids.Split(',').Select(int.Parse).ToList();
         var result = await _computerService.GetMetricsHistoryBatchAsync(idList, start, end, metric, maxPoints);

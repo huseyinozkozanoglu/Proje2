@@ -1,13 +1,13 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 namespace Staj2.Services.Models.Agent
 {
     public class TopWarningItemDto
     {
         public int ComputerId { get; set; }
-        public string ComputerName { get; set; }
+        public string ComputerName { get; set; } = null!;
         public int WarningCount { get; set; }
-        public string DiskName { get; set; } // Sadece Disk uyarıları için dolu olacak
+        public string? DiskName { get; set; } // Sadece Disk uyarıları için dolu olacak
     }
 
     public class TopWarningsReportDto

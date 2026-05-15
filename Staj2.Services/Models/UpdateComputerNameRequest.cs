@@ -1,11 +1,11 @@
-﻿using System.ComponentModel.DataAnnotations; // <--- BU SATIRI EKLEMEYİ UNUTMA
+using System.ComponentModel.DataAnnotations;
 
-namespace Staj2.Services.Models // Namespace ekli değilse ekleyebilirsin, genelde vardır
+namespace Staj2.Services.Models
 {
     public class UpdateComputerNameRequest
     {
         public int Id { get; set; }
 
-        public string NewDisplayName { get; set; }
+        public string NewDisplayName { get; set; } = null!;
     }
 }

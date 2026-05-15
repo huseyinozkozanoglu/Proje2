@@ -14,13 +14,11 @@ public class ComputerService : BaseService, IComputerService
 {
     private readonly IConfiguration _config;
     private readonly IMemoryCache _cache;
-    private readonly AppDbContext _db;
     private readonly IServiceScopeFactory _scopeFactory;
 
     // YENİ: AppDbContext db'yi base sınıfa (BaseService) gönderiyoruz
     public ComputerService(AppDbContext db, IConfiguration config, IMemoryCache cache, IServiceScopeFactory scopeFactory) : base(db)
     {
-        _db = db;
         _config = config;
         _cache = cache;
         _scopeFactory = scopeFactory;
@@ -361,7 +359,7 @@ public class ComputerService : BaseService, IComputerService
         foreach (var item in sortedData)
         {
             // Max Streak
-            if (Math.Abs((double)item.Value - detail.MaxValue.Value) < 0.01)
+            if (detail.MaxValue.HasValue && Math.Abs((double)item.Value - detail.MaxValue.Value) < 0.01)
             {
                 detail.MaxOccurrenceTimes.Add(item.CreatedAt);
 
@@ -380,7 +378,7 @@ public class ComputerService : BaseService, IComputerService
             }
 
             // Min Streak
-            if (Math.Abs((double)item.Value - detail.MinValue.Value) < 0.01)
+            if (detail.MinValue.HasValue && Math.Abs((double)item.Value - detail.MinValue.Value) < 0.01)
             {
                 detail.MinOccurrenceTimes.Add(item.CreatedAt);
 
@@ -1298,7 +1296,7 @@ public class ComputerService : BaseService, IComputerService
 
             // Disk uyarılarını yukarıdaki devasa listeden RAM üzerinde çekiyoruz
             var diskBreachesLookup = allBreachesRaw
-                .Where(x => x.MetricTypeId == 3 && x.ComputerDiskId.HasValue)
+                .Where(x => x.ComputerDiskId.HasValue)
                 .ToLookup(x => x.ComputerDiskId!.Value, x => x.Breach);
 
             foreach (var disk in computer.Disks)
@@ -1341,7 +1339,7 @@ public class ComputerService : BaseService, IComputerService
     public async Task<ServiceResult<object>> GetLogHistogramDataAsync(int computerId, string start, string end, int userId, bool isAdmin, string? levels = null, string? metrics = null, string? search = null)
     {
         if (!await CheckComputerAccessAsync(computerId, userId, isAdmin))
-            return ServiceResult<object>.Failure("Bu cihaza erişim yetkiniz bulunmamaktadır.");
+            return ServiceResult<object>.Failure("Bu cihaza erişim yetkiniz bulunamadı.");
 
         if (!DateTime.TryParse(start, out DateTime startTime) || !DateTime.TryParse(end, out DateTime endTime))
             return ServiceResult<object>.Failure("Geçersiz tarih formatı.");
@@ -1656,7 +1654,6 @@ public class ComputerService : BaseService, IComputerService
         return ServiceResult<object>.Success(result);
     }
 
-    // 14. CSV Log Dışa Aktarma - Streaming (JSON yerine doğrudan CSV yazarak büyük veri setlerini destekler)
     public async Task ExportLogsCsvAsync(int computerId, string start, string end, int userId, bool isAdmin, StreamWriter writer)
     {
         if (!await CheckComputerAccessAsync(computerId, userId, isAdmin))
@@ -1733,6 +1730,7 @@ public class ComputerService : BaseService, IComputerService
 
         // Disk Metriklerini parça parça işle
         var diskDict = computer.Disks?.ToDictionary(d => d.Id) ?? new Dictionary<int, ComputerDisk>();
+        var disksDict = computer.Disks?.ToDictionary(d => d.Id, d => d.DiskName) ?? new Dictionary<int, string>();
         skip = 0;
         hasMore = true;
 
@@ -1755,8 +1753,8 @@ public class ComputerService : BaseService, IComputerService
                 long ts = dm.CreatedAt.Ticks / 10000000;
                 string key = $"3_{dm.ComputerDiskId}_{ts}";
                 string timeStr = dm.CreatedAt.ToString("dd.MM.yyyy HH:mm:ss");
+                string diskName = disksDict.TryGetValue(dm.ComputerDiskId, out var name) ? name : "Bilinmeyen";
                 var dInfo = diskDict.GetValueOrDefault(dm.ComputerDiskId);
-                string diskName = dInfo?.DiskName ?? "Bilinmeyen";
 
                 if (warningLookup.TryGetValue(key, out var dWarn))
                 {
@@ -1847,7 +1845,7 @@ public class ComputerService : BaseService, IComputerService
         return ServiceResult<int>.Success(totalCount);
     }
 
-    public async Task<string> GenerateExportTokenAsync(int computerId, string start, string end, int userId, bool isAdmin)
+    public Task<string> GenerateExportTokenAsync(int computerId, string start, string end, int userId, bool isAdmin)
     {
         var token = Guid.NewGuid().ToString();
         var data = new ExportTokenParams { 
@@ -1860,17 +1858,17 @@ public class ComputerService : BaseService, IComputerService
 
         // 1 dakika boyunca cache'te sakla
         _cache.Set($"ExportToken_{token}", data, TimeSpan.FromMinutes(1));
-        return token;
+        return Task.FromResult(token);
     }
 
-    public async Task<ExportTokenParams?> GetExportParamsAsync(string token)
+    public Task<ExportTokenParams?> GetExportParamsAsync(string token)
     {
         var key = $"ExportToken_{token}";
         if (_cache.TryGetValue(key, out ExportTokenParams? data))
         {
             _cache.Remove(key); // Tek kullanımlık
-            return data;
+            return Task.FromResult(data);
         }
-        return null;
+        return Task.FromResult<ExportTokenParams?>(null);
     }
 }

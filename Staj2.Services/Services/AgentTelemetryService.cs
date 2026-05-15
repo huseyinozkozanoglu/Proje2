@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Staj2.Domain.Entities;
 using Staj2.Infrastructure.Data;
@@ -433,7 +433,7 @@ public class AgentTelemetryService : BaseService, IAgentTelemetryService
         // Disk isimlerini alıyoruz (Sadece uyarı almış diskleri çekiyoruz ki sorgu minicik olsun)
         var diskIdsToFetch = rawWarningCounts
             .Where(x => x.ComputerDiskId.HasValue)
-            .Select(x => x.ComputerDiskId.Value)
+            .Select(x => x.ComputerDiskId!.Value)
             .Distinct()
             .ToList();
 
@@ -485,7 +485,7 @@ public class AgentTelemetryService : BaseService, IAgentTelemetryService
                 ComputerName = computersDict.TryGetValue(w.ComputerId, out var comp)
                     ? (!string.IsNullOrWhiteSpace(comp.DisplayName) ? comp.DisplayName : comp.MachineName)
                     : "Bilinmeyen Cihaz",
-                DiskName = disksDict.TryGetValue(w.ComputerDiskId.Value, out var diskName) ? diskName : "Bilinmeyen Disk",
+                DiskName = disksDict.TryGetValue(w.ComputerDiskId!.Value, out var diskName) ? diskName : "Bilinmeyen Disk",
                 WarningCount = w.WarningCount
             })
             .OrderByDescending(x => x.WarningCount)

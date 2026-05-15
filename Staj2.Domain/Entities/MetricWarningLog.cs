@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace Staj2.Domain.Entities
 {
@@ -7,14 +7,14 @@ namespace Staj2.Domain.Entities
         public long Id { get; set; }
 
         public int ComputerId { get; set; }
-        public Computer Computer { get; set; }
+        public Computer Computer { get; set; } = null!;
 
         public int MetricTypeId { get; set; }
-        public MetricType MetricType { get; set; }
+        public MetricType MetricType { get; set; } = null!;
 
         // --- DEĞİŞEN KISIM: String yerine doğrudan ilişkisel Disk nesnesi (Nullable) ---
         public int? ComputerDiskId { get; set; }
-        public ComputerDisk ComputerDisk { get; set; }
+        public ComputerDisk? ComputerDisk { get; set; }
         // -------------------------------------------------------------------------------
 
         public double MetricValue { get; set; }

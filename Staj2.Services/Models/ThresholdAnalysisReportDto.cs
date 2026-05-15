@@ -1,9 +1,12 @@
-﻿namespace Staj2.Services.Models
+using System;
+using System.Collections.Generic;
+
+namespace Staj2.Services.Models
 {
     public class ThresholdAnalysisReportDto
     {
         public int ComputerId { get; set; }
-        public string ComputerName { get; set; }
+        public string ComputerName { get; set; } = null!;
         public int TotalActiveCount { get; set; } // Seconds -> Count oldu
 
         public MetricThresholdResult CpuResult { get; set; } = new();
@@ -29,6 +32,6 @@
     }
     public class DiskThresholdResult : MetricThresholdResult
     {
-        public string DiskName { get; set; }
+        public string DiskName { get; set; } = null!;
     }
 }
