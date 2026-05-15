@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+ï»¿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -14,8 +14,6 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
-builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddScoped<IMailSender, MailKitMailSender>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IAdminService, AdminService>();
@@ -38,7 +36,7 @@ builder.Services.AddSwaggerGen(c =>
         Scheme = "bearer",
         BearerFormat = "JWT",
         In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Description = "Bearer {token} þeklinde gir"
+        Description = "Bearer {token} ÅŸeklinde gir"
     });
 
     c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
@@ -83,19 +81,19 @@ builder.Services
     });
 
 builder.Services.AddAuthorization();
-// 1. Memory Cache'i aktif et (Servisimiz kullanýyor)
+// 1. Memory Cache'i aktif et (Servisimiz kullanÄ±yor)
 builder.Services.AddMemoryCache();
 
 // Program.cs
-var adminRoleName = builder.Configuration["AppDefaults:AdminRoleName"] ?? "Yönetici";
+var adminRoleName = builder.Configuration["AppDefaults:AdminRoleName"] ?? "YÃ¶netici";
 
 builder.Services.AddAuthorization(options =>
 {
-    // Dinamik olarak appsettings'den rolü okuyup kural oluþturuyoruz
+    // Dinamik olarak appsettings'den rolÃ¼ okuyup kural oluÅŸturuyoruz
     options.AddPolicy("AdminOnly", policy => policy.RequireRole(adminRoleName));
 });
 
-// 3. Bütün projedeki Controller'larýn tepesine otomatik olarak yazdýðýmýz Filtreyi koy
+// 3. BÃ¼tÃ¼n projedeki Controller'larÄ±n tepesine otomatik olarak yazdÄ±ÄŸÄ±mÄ±z Filtreyi koy
 builder.Services.AddControllers(options =>
 {
     options.Filters.Add<STAJ2.Authorization.DynamicPermissionFilter>();
@@ -124,10 +122,8 @@ using (var scope = app.Services.CreateScope())
     var services = scope.ServiceProvider;
     var context = services.GetRequiredService<Staj2.Infrastructure.Data.AppDbContext>();
 
-    // Tablolarý oluþtur (eðer yoksa)
+    // TablolarÄ± oluÅŸtur (eÄŸer yoksa)
     context.Database.Migrate();
 
-    // Yetkileri tabloya ekle
-    STAJ2.Seed.PermissionSeeder.Seed(context);
 }
 app.Run();
